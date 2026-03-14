@@ -116,8 +116,23 @@ func Load() (*Config, error) {
 			Format: getEnv("LOG_FORMAT", "json"),
 		},
 		SuperAdmin: SuperAdminConfig{
-			IPAllowlist: strings.Split(getEnv("SA_IP_ALLOWLIST", "127.0.0.1"), ","),
+			IPAllowlist: strings.Split(getEnv("SA_IP_ALLOWLIST", ""), ","),
 		},
+	}
+
+	// Validate required fields
+	var missing []string
+	if cfg.Database.URL == "" {
+		missing = append(missing, "DATABASE_URL")
+	}
+	if cfg.OrgJWT.Secret == "" {
+		missing = append(missing, "ORG_JWT_SECRET")
+	}
+	if cfg.SuperJWT.Secret == "" {
+		missing = append(missing, "SA_JWT_SECRET")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
 
 	return cfg, nil
