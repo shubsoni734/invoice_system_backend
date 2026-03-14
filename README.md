@@ -83,21 +83,10 @@ go install github.com/pressly/goose/v3/cmd/goose@latest
 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 ```
 
-### 2. Generate RSA key pairs
-```bash
-mkdir keys
-
-openssl genrsa -out keys/org_private.pem 2048
-openssl rsa -in keys/org_private.pem -pubout -out keys/org_public.pem
-
-openssl genrsa -out keys/sa_private.pem 2048
-openssl rsa -in keys/sa_private.pem -pubout -out keys/sa_public.pem
-```
-
-### 3. Configure environment
+### 2. Configure environment
 ```bash
 cp .env.development .env
-# Edit .env and set DATABASE_URL
+# Edit .env and set DATABASE_URL, ORG_JWT_SECRET, SA_JWT_SECRET
 ```
 
 ### 4. Run migrations
@@ -177,9 +166,49 @@ Server runs on `http://localhost:8080`
 
 All tables use UUID primary keys (`uuid_generate_v4()`).
 
+## JWT Authentication
+
+Two separate JWT managers are created at startup — one for org users, one for superadmin. Both use HS256 (HMAC-SHA256) with a secret string from env.
+
+| Manager | Secret env var | Used in |
+|---------|---------------|---------|
+| `orgJWT` | `ORG_JWT_SECRET` | `middleware.Auth` — protects `/api/v1/*` routes |
+| `superJWT` | `SA_JWT_SECRET` | `middleware.SuperAuth` — protects `/superadmin/*` routes |
+
+### Token flow
+
+```
+POST /superadmin/auth/login
+  → handler.go: GenerateToken (15m) + GenerateRefreshToken (24h)
+  → refresh token hash stored in super_refresh_tokens table
+
+GET /superadmin/auth/me  (Bearer <access_token>)
+  → middleware/super_auth.go: VerifyToken → sets ctx super_admin_id
+  → handler.go: reads ctx super_admin_id, queries DB
+
+POST /superadmin/auth/logout
+  → handler.go: RevokeAllSuperRefreshTokens for that super_admin_id
+```
+
+### Claims structure
+
+```go
+type Claims struct {
+    UserID               string  // org user ID
+    OrgID                string  // organisation ID
+    Role                 string  // user/superadmin role
+    SuperAdminID         string  // set for superadmin tokens
+    ImpersonatedBy       string  // set during impersonation
+    ImpersonationSession string
+    jwt.RegisteredClaims        // exp, iat
+}
+```
+
+
+
 ## Security
 
-- JWT RS256 — separate key pairs for org users and superadmin
+- JWT HS256 — separate secrets for org users and superadmin (`ORG_JWT_SECRET`, `SA_JWT_SECRET`)
 - Bcrypt password hashing (cost 12)
 - Account lockout after 5 failed attempts (15 min cooldown)
 - Rate limiting: 10 req/min (auth), 300 req/min (API)

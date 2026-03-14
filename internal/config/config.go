@@ -35,8 +35,7 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	PrivateKeyPath     string
-	PublicKeyPath      string
+	Secret             string
 	AccessTokenExpiry  time.Duration
 	RefreshTokenExpiry time.Duration
 }
@@ -91,14 +90,12 @@ func Load() (*Config, error) {
 			MaxConnIdleTime: parseDuration(getEnv("DB_MAX_CONN_IDLE_TIME", "30m")),
 		},
 		OrgJWT: JWTConfig{
-			PrivateKeyPath:     getEnv("ORG_JWT_PRIVATE_KEY_PATH", "./keys/org_private.pem"),
-			PublicKeyPath:      getEnv("ORG_JWT_PUBLIC_KEY_PATH", "./keys/org_public.pem"),
+			Secret:             getEnv("ORG_JWT_SECRET", ""),
 			AccessTokenExpiry:  parseDuration(getEnv("ORG_ACCESS_TOKEN_EXPIRY", "15m")),
 			RefreshTokenExpiry: parseDuration(getEnv("ORG_REFRESH_TOKEN_EXPIRY", "168h")),
 		},
 		SuperJWT: JWTConfig{
-			PrivateKeyPath:     getEnv("SA_JWT_PRIVATE_KEY_PATH", "./keys/sa_private.pem"),
-			PublicKeyPath:      getEnv("SA_JWT_PUBLIC_KEY_PATH", "./keys/sa_public.pem"),
+			Secret:             getEnv("SA_JWT_SECRET", ""),
 			AccessTokenExpiry:  parseDuration(getEnv("SA_ACCESS_TOKEN_EXPIRY", "15m")),
 			RefreshTokenExpiry: parseDuration(getEnv("SA_REFRESH_TOKEN_EXPIRY", "24h")),
 		},

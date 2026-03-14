@@ -52,12 +52,12 @@ func main() {
 	}
 	logger.Info("Database connection established")
 
-	orgJWT, err := utils.NewJWTManager(cfg.OrgJWT.PrivateKeyPath, cfg.OrgJWT.PublicKeyPath, cfg.OrgJWT.AccessTokenExpiry)
+	orgJWT, err := utils.NewJWTManager(cfg.OrgJWT.Secret, cfg.OrgJWT.AccessTokenExpiry)
 	if err != nil {
 		logger.Fatal("Failed to initialize org JWT manager", zap.Error(err))
 	}
 
-	superJWT, err := utils.NewJWTManager(cfg.SuperJWT.PrivateKeyPath, cfg.SuperJWT.PublicKeyPath, cfg.SuperJWT.AccessTokenExpiry)
+	superJWT, err := utils.NewJWTManager(cfg.SuperJWT.Secret, cfg.SuperJWT.AccessTokenExpiry)
 	if err != nil {
 		logger.Fatal("Failed to initialize super JWT manager", zap.Error(err))
 	}

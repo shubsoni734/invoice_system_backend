@@ -8,9 +8,8 @@ RUN go build -o api ./cmd/api
 
 # Run stage
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /root/
 COPY --from=builder /app/api .
-COPY --from=builder /app/.env.development .env
 EXPOSE 8080
 CMD ["./api"]
