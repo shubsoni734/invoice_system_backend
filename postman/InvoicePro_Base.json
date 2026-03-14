@@ -1,0 +1,14 @@
+﻿{
+  "info": {
+    "_postman_id": "invoice-pro-api",
+    "name": "InvoicePro API Collection",
+    "description": "Complete API collection for InvoicePro Billing System",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "base_url", "value": "http://localhost:8080"},
+    {"key": "access_token", "value": ""},
+    {"key": "refresh_token", "value": ""},
+    {"key": "super_access_token", "value": ""}
+  ]
+}

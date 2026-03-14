@@ -1,0 +1,26 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# JWT keys — never commit
+keys/
+
+# Build output
+bin/
+
+# Uploads
+uploads/logos/*
+uploads/invoices/*
+!uploads/logos/.gitkeep
+!uploads/invoices/.gitkeep
+
+# Go
+*.exe
+*.test
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+*.swp

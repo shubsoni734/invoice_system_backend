@@ -1,0 +1,142 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	Server     ServerConfig
+	Database   DatabaseConfig
+	OrgJWT     JWTConfig
+	SuperJWT   JWTConfig
+	RateLimit  RateLimitConfig
+	Upload     UploadConfig
+	WhatsApp   WhatsAppConfig
+	Logging    LoggingConfig
+	SuperAdmin SuperAdminConfig
+}
+
+type ServerConfig struct {
+	Port           string
+	Environment    string
+	AllowedOrigins []string
+}
+
+type DatabaseConfig struct {
+	URL             string
+	MinConns        int
+	MaxConns        int
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
+type JWTConfig struct {
+	PrivateKeyPath     string
+	PublicKeyPath      string
+	AccessTokenExpiry  time.Duration
+	RefreshTokenExpiry time.Duration
+}
+
+type RateLimitConfig struct {
+	AuthRPM int
+	APIRPM  int
+}
+
+type UploadConfig struct {
+	Dir       string
+	MaxSizeMB int
+}
+
+type WhatsAppConfig struct {
+	APIURL string
+	APIKey string
+}
+
+type LoggingConfig struct {
+	Level  string
+	Format string
+}
+
+type SuperAdminConfig struct {
+	IPAllowlist []string
+}
+
+func Load() (*Config, error) {
+	viper.SetConfigName(".env")
+	viper.SetConfigType("env")
+	viper.AddConfigPath(".")
+	viper.AutomaticEnv()
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
+	}
+
+	cfg := &Config{
+		Server: ServerConfig{
+			Port:           getEnv("SERVER_PORT", "8080"),
+			Environment:    getEnv("ENVIRONMENT", "development"),
+			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+		},
+		Database: DatabaseConfig{
+			URL:             getEnv("DATABASE_URL", ""),
+			MinConns:        getInt("DB_MIN_CONNS", 5),
+			MaxConns:        getInt("DB_MAX_CONNS", 25),
+			MaxConnLifetime: parseDuration(getEnv("DB_MAX_CONN_LIFETIME", "1h")),
+			MaxConnIdleTime: parseDuration(getEnv("DB_MAX_CONN_IDLE_TIME", "30m")),
+		},
+		OrgJWT: JWTConfig{
+			PrivateKeyPath:     getEnv("ORG_JWT_PRIVATE_KEY_PATH", "./keys/org_private.pem"),
+			PublicKeyPath:      getEnv("ORG_JWT_PUBLIC_KEY_PATH", "./keys/org_public.pem"),
+			AccessTokenExpiry:  parseDuration(getEnv("ORG_ACCESS_TOKEN_EXPIRY", "15m")),
+			RefreshTokenExpiry: parseDuration(getEnv("ORG_REFRESH_TOKEN_EXPIRY", "168h")),
+		},
+		SuperJWT: JWTConfig{
+			PrivateKeyPath:     getEnv("SA_JWT_PRIVATE_KEY_PATH", "./keys/sa_private.pem"),
+			PublicKeyPath:      getEnv("SA_JWT_PUBLIC_KEY_PATH", "./keys/sa_public.pem"),
+			AccessTokenExpiry:  parseDuration(getEnv("SA_ACCESS_TOKEN_EXPIRY", "15m")),
+			RefreshTokenExpiry: parseDuration(getEnv("SA_REFRESH_TOKEN_EXPIRY", "24h")),
+		},
+		RateLimit: RateLimitConfig{
+			AuthRPM: getInt("RATE_LIMIT_AUTH_RPM", 10),
+			APIRPM:  getInt("RATE_LIMIT_API_RPM", 300),
+		},
+		Upload: UploadConfig{
+			Dir:       getEnv("UPLOAD_DIR", "./uploads"),
+			MaxSizeMB: getInt("MAX_UPLOAD_SIZE_MB", 2),
+		},
+		WhatsApp: WhatsAppConfig{
+			APIURL: getEnv("WHATSAPP_API_URL", ""),
+			APIKey: getEnv("WHATSAPP_API_KEY", ""),
+		},
+		Logging: LoggingConfig{
+			Level:  getEnv("LOG_LEVEL", "info"),
+			Format: getEnv("LOG_FORMAT", "json"),
+		},
+		SuperAdmin: SuperAdminConfig{
+			IPAllowlist: strings.Split(getEnv("SA_IP_ALLOWLIST", "127.0.0.1"), ","),
+		},
+	}
+
+	return cfg, nil
+}
+
+func getEnv(key, defaultValue string) string {
+	viper.SetDefault(key, defaultValue)
+	return viper.GetString(key)
+}
+
+func getInt(key string, defaultValue int) int {
+	viper.SetDefault(key, defaultValue)
+	return viper.GetInt(key)
+}
+
+func parseDuration(s string) time.Duration {
+	d, _ := time.ParseDuration(s)
+	return d
+}
