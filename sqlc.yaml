@@ -1,15 +1,33 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "internal/db/queries"
-    schema: "internal/db/migrations"
+    queries: "internal/domain/superadmin/auth/queries.sql"
+    schema: "internal/pkg/db/migrations"
     gen:
       go:
-        package: "db"
-        out: "internal/db/sqlc"
+        package: "authdb"
+        out: "internal/domain/superadmin/auth/sqlc"
+        sql_package: "pgx/v5"
         emit_json_tags: true
-        emit_prepared_queries: false
-        emit_interface: true
-        emit_exact_table_names: false
-        emit_empty_slices: true
-        null_style: "sql_null_types"
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "inet"
+            go_type:
+              import: "net"
+              type: "IP"
+
+  - engine: "postgresql"
+    queries: "internal/domain/superadmin/organisations/queries.sql"
+    schema: "internal/pkg/db/migrations"
+    gen:
+      go:
+        package: "orgdb"
+        out: "internal/domain/superadmin/organisations/sqlc"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
