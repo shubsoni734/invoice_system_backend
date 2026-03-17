@@ -76,7 +76,7 @@ func main() {
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.CORS(cfg.Server.AllowedOrigins))
 
-	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist)
+	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist, cfg.WhatsApp.APIURL, cfg.WhatsApp.APIKey)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

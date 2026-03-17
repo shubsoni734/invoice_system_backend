@@ -9,11 +9,16 @@ import (
 	customers "github.com/your-org/invoice-backend/internal/domain/customers"
 	invoices "github.com/your-org/invoice-backend/internal/domain/invoices"
 	invoicesessions "github.com/your-org/invoice-backend/internal/domain/invoicesessions"
+	payments "github.com/your-org/invoice-backend/internal/domain/payments"
+	invoicepdf "github.com/your-org/invoice-backend/internal/domain/pdf"
+	reports "github.com/your-org/invoice-backend/internal/domain/reports"
 	services "github.com/your-org/invoice-backend/internal/domain/services"
 	settings "github.com/your-org/invoice-backend/internal/domain/settings"
 	superadminAuth "github.com/your-org/invoice-backend/internal/domain/superadmin/auth"
 	superadminOrgs "github.com/your-org/invoice-backend/internal/domain/superadmin/organisations"
+	superadminUsers "github.com/your-org/invoice-backend/internal/domain/superadmin/users"
 	templates "github.com/your-org/invoice-backend/internal/domain/templates"
+	whatsapp "github.com/your-org/invoice-backend/internal/domain/whatsapp"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
@@ -27,6 +32,8 @@ func RegisterRoutes(
 	authRateLimiter *middleware.RateLimiter,
 	apiRateLimiter *middleware.RateLimiter,
 	superAdminIPAllowlist []string,
+	whatsAppAPIURL string,
+	whatsAppAPIKey string,
 ) {
 	// Health
 	router.GET("/health", func(c *gin.Context) {
@@ -58,20 +65,26 @@ func RegisterRoutes(
 		invoicesessions.RegisterRoutes(protected, db)
 		templates.RegisterRoutes(protected, db)
 		invoices.RegisterRoutes(protected, db)
+		payments.RegisterRoutes(protected, db)
+		reports.RegisterRoutes(protected, db)
+		invoicepdf.RegisterRoutes(protected, db)
+		whatsapp.RegisterRoutes(protected, db, whatsAppAPIURL, whatsAppAPIKey)
 	}
 
 	// SuperAdmin
 	superAdmin := router.Group("/superadmin")
 	superAdmin.Use(middleware.RateLimit(authRateLimiter))
 	{
-		// Public: create + login
 		superadminAuth.RegisterRoutes(superAdmin, db, superJWT, authRateLimiter)
 
-		// Protected: requires valid superadmin JWT
 		protected := superAdmin.Group("")
 		protected.Use(middleware.SuperAuth(superJWT, superAdminIPAllowlist))
 		{
-			superadminOrgs.RegisterRoutes(protected.Group("/organisations"), db)
+			orgsGroup := protected.Group("/organisations")
+			superadminOrgs.RegisterRoutes(orgsGroup, db)
+
+			usersGroup := protected.Group("/users")
+			superadminUsers.RegisterRoutes(orgsGroup, usersGroup, db)
 		}
 	}
 }
