@@ -5,8 +5,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	adminAuth "github.com/your-org/invoice-backend/internal/domain/auth"
+	customers "github.com/your-org/invoice-backend/internal/domain/customers"
+	invoices "github.com/your-org/invoice-backend/internal/domain/invoices"
+	invoicesessions "github.com/your-org/invoice-backend/internal/domain/invoicesessions"
+	services "github.com/your-org/invoice-backend/internal/domain/services"
+	settings "github.com/your-org/invoice-backend/internal/domain/settings"
 	superadminAuth "github.com/your-org/invoice-backend/internal/domain/superadmin/auth"
 	superadminOrgs "github.com/your-org/invoice-backend/internal/domain/superadmin/organisations"
+	templates "github.com/your-org/invoice-backend/internal/domain/templates"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
@@ -38,21 +45,19 @@ func RegisterRoutes(
 	{
 		authPublic := apiV1.Group("/auth")
 		authPublic.Use(middleware.RateLimit(authRateLimiter))
-		{
-			authPublic.POST("/login", func(c *gin.Context) {
-				response.Success(c, http.StatusOK, "Login endpoint — implement org auth domain", nil)
-			})
-		}
 
 		protected := apiV1.Group("")
 		protected.Use(middleware.RateLimit(apiRateLimiter))
 		protected.Use(middleware.Auth(orgJWT))
 		protected.Use(middleware.Tenant(db))
-		{
-			protected.GET("/auth/me", func(c *gin.Context) {
-				response.Success(c, http.StatusOK, "User profile endpoint", nil)
-			})
-		}
+
+		adminAuth.RegisterRoutes(authPublic, protected, db, orgJWT)
+		settings.RegisterRoutes(protected, db)
+		customers.RegisterRoutes(protected, db)
+		services.RegisterRoutes(protected, db)
+		invoicesessions.RegisterRoutes(protected, db)
+		templates.RegisterRoutes(protected, db)
+		invoices.RegisterRoutes(protected, db)
 	}
 
 	// SuperAdmin
