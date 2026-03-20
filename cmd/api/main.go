@@ -62,11 +62,6 @@ func main() {
 		logger.Fatal("Failed to initialize super JWT manager", zap.Error(err))
 	}
 
-	if cfg.Bravo.APIKey == "" {
-		logger.Warn("Bravo API key is not configured in .env!")
-	} else {
-		logger.Info("Bravo API key loaded successfully")
-	}
 
 	authRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.AuthRPM)
 	apiRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.APIRPM)
@@ -82,7 +77,7 @@ func main() {
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.CORS(cfg.Server.AllowedOrigins))
 
-	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist, cfg.WhatsApp.APIURL, cfg.WhatsApp.APIKey, cfg.Bravo.APIKey, cfg.Bravo.Username)
+	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist, cfg.WhatsApp.APIURL, cfg.WhatsApp.APIKey)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

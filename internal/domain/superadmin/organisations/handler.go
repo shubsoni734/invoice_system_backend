@@ -2,43 +2,29 @@ package organisations
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	orgdb "github.com/your-org/invoice-backend/internal/domain/superadmin/organisations/sqlc"
-	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
-	"github.com/your-org/invoice-backend/internal/pkg/utils"
-	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
 
 type Handler struct {
-	q           *orgdb.Queries
-	emailClient *email.Client
+	q *orgdb.Queries
 }
 
-func NewHandler(db *pgxpool.Pool, emailClient *email.Client) *Handler {
-	return &Handler{
-		q:           orgdb.New(db),
-		emailClient: emailClient,
-	}
+func NewHandler(q *orgdb.Queries) *Handler {
+	return &Handler{q: q}
 }
 
 type CreateOrgRequest struct {
-	Name    string `json:"name" binding:"required"`
-	Email   string `json:"email"`
-	Phone   string `json:"phone"`
-	Address string `json:"address"`
-}
-
-type ApplySubscriptionRequest struct {
-	PlanID string `json:"plan_id"`
+	Name    string             `json:"name" binding:"required"`
+	Email   string             `json:"email" binding:"required,email"`
+	Phone   *string            `json:"phone"`
+	Address *string            `json:"address"`
+	LogoUrl *string            `json:"logo_url"`
 }
 
 // CreateOrganisation POST /superadmin/organisations
@@ -49,204 +35,137 @@ func (h *Handler) CreateOrganisation(c *gin.Context) {
 		return
 	}
 
-	rawID, _ := c.Get(constants.CtxSuperAdminID)
 	ctx := context.Background()
 
-	slug := utils.SanitizeSlug(req.Name)
-	slugExists, _ := h.q.OrgSlugExists(ctx, slug)
-	if slugExists {
-		slug = slug + "-" + uuid.New().String()[:8]
-	}
-
-	// Convert superAdminID string to pgtype.UUID
-	var createdBy pgtype.UUID
-	if rawID != nil && rawID != "" {
-		if id, err := uuid.Parse(rawID.(string)); err == nil {
-			createdBy = pgtype.UUID{Bytes: id, Valid: true}
-		}
-	}
-
-	// Generate and hash password
-	rawPassword := utils.GenerateRandomPassword(12)
-	hashedPassword, err := utils.HashPassword(rawPassword)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to hash organization password")
-		return
-	}
+	// Generate Slug
+	slug := req.Name // For simplicity, we use the name as the slug for now.
+	// In a real app, logic to generate a unique slug would go here.
 
 	row, err := h.q.CreateOrganisation(ctx, orgdb.CreateOrganisationParams{
 		Name:                  req.Name,
 		Slug:                  slug,
-		Email:                 nullableStr(req.Email),
-		Phone:                 nullableStr(req.Phone),
-		Address:               nullableStr(req.Address),
-		CreatedBySuperAdminID: createdBy,
-		PasswordHash:          nullableStr(hashedPassword),
+		Email:                 &req.Email,
+		Phone:                 req.Phone,
+		Address:               req.Address,
+		CreatedBySuperAdminID: pgtype.UUID{Valid: false}, // Placeholder for Creator
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to create organisation: "+err.Error())
+		response.Error(c, http.StatusInternalServerError, "Failed to create organization")
 		return
 	}
 
-	// Send welcome email if email is provided
-	emailSent := false
-	if req.Email != "" {
-		fmt.Printf("[Handler] Attempting to send welcome email to %s...\n", req.Email)
-		err = h.emailClient.SendWelcomeEmail(req.Email, req.Name, rawPassword)
-		if err == nil {
-			emailSent = true
-		} else {
-			fmt.Printf("[Handler] Email sending failed: %v\n", err)
-		}
+	// Create Default Subscription (Free Plan)
+	planID, err := h.q.GetUnlimitedPlan(ctx) // In this example we use an "Unlimited" plan
+	if err != nil {
+		// If no plan, we create it just for testing
+		planID, _ = h.q.CreateUnlimitedPlan(ctx)
 	}
 
-	response.Success(c, http.StatusCreated, "Organisation created successfully", gin.H{
-		"id":         row.ID,
-		"name":       row.Name,
-		"slug":       row.Slug,
-		"email":         row.Email,
-		"password_hash": row.PasswordHash,
-		"email_sent":    emailSent,
+	_, _ = h.q.CreateSubscription(ctx, orgdb.CreateSubscriptionParams{
+		OrganisationID: row.ID,
+		PlanID:         planID,
 	})
+
+	response.Success(c, http.StatusCreated, "Organisation created successfully", row)
 }
 
 // ListOrganisations GET /superadmin/organisations
 func (h *Handler) ListOrganisations(c *gin.Context) {
-	pagination := utils.GetPaginationParams(c)
-	ctx := context.Background()
-
-	total, _ := h.q.CountOrganisations(ctx)
-
-	orgs, err := h.q.ListOrganisations(ctx, orgdb.ListOrganisationsParams{
-		Limit:  int32(pagination.PerPage),
-		Offset: int32(pagination.Offset),
+	// Simple pagination
+	orgs, err := h.q.ListOrganisations(c, orgdb.ListOrganisationsParams{
+		Limit:  20,
+		Offset: 0,
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to fetch organisations")
+		response.Error(c, http.StatusInternalServerError, "Failed to list organisations")
 		return
 	}
 
-	// Ensure empty slice instead of nil for JSON
-	if orgs == nil {
-		orgs = []orgdb.ListOrganisationsRow{}
-	}
-
-	response.Success(c, http.StatusOK, "Organisations retrieved", gin.H{
-		"organisations": orgs,
-		"pagination": gin.H{
-			"page":        pagination.Page,
-			"per_page":    pagination.PerPage,
-			"total":       total,
-			"total_pages": utils.CalculateTotalPages(int64(total), pagination.PerPage),
-		},
-	})
+	response.Success(c, http.StatusOK, "Organisations retrieved", orgs)
 }
 
-// GetOrganisation GET /superadmin/organisations/:id
-func (h *Handler) GetOrganisation(c *gin.Context) {
-	orgID, err := uuid.Parse(c.Param("id"))
+// GetOrganisationByID GET /superadmin/organisations/:id
+func (h *Handler) GetOrganisationByID(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid organisation ID")
+		response.Error(c, http.StatusBadRequest, "Invalid ID format")
 		return
 	}
 
-	ctx := context.Background()
-
-	org, err := h.q.GetOrganisationByID(ctx, orgID)
+	org, err := h.q.GetOrganisationByID(c, id)
 	if err != nil {
 		response.Error(c, http.StatusNotFound, "Organisation not found")
 		return
 	}
 
-	var sub interface{}
-	subRow, subErr := h.q.GetActiveSubscription(ctx, orgID)
-	if subErr == nil {
-		sub = gin.H{
-			"plan":       subRow.PlanName,
-			"status":     subRow.Status,
-			"period_end": subRow.CurrentPeriodEnd.Time,
-		}
-	}
+	// Fetch active subscription details
+	subscription, _ := h.q.GetActiveSubscription(c, id)
 
 	response.Success(c, http.StatusOK, "Organisation retrieved", gin.H{
 		"organisation": org,
-		"subscription": sub,
+		"subscription": subscription,
 	})
+}
+
+type ApplySubscriptionRequest struct {
+	PlanID *uuid.UUID `json:"plan_id"`
 }
 
 // ApplySubscription POST /superadmin/organisations/:id/subscription
 func (h *Handler) ApplySubscription(c *gin.Context) {
-	orgID, err := uuid.Parse(c.Param("id"))
+	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid organisation ID")
+		response.Error(c, http.StatusBadRequest, "Invalid ID format")
 		return
 	}
 
 	var req ApplySubscriptionRequest
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		return
+	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
-	exists, _ := h.q.OrgExists(ctx, orgID)
-	if !exists {
+	// 1. Verify org exists
+	exists, err := h.q.OrgExists(ctx, id)
+	if err != nil || !exists {
 		response.Error(c, http.StatusNotFound, "Organisation not found")
 		return
 	}
 
+	// 2. Get Plan ID
 	var planID uuid.UUID
-
-	if req.PlanID != "" {
-		pid, parseErr := uuid.Parse(req.PlanID)
-		if parseErr != nil {
+	if req.PlanID != nil {
+		planID = *req.PlanID
+		// Verify plan exists
+		_, err = h.q.GetPlanByID(ctx, planID)
+		if err != nil {
 			response.Error(c, http.StatusBadRequest, "Invalid plan ID")
 			return
 		}
-		planID, err = h.q.GetPlanByID(ctx, pid)
-		if err != nil {
-			response.Error(c, http.StatusNotFound, "Plan not found or inactive")
-			return
-		}
 	} else {
-		// Get or create the default Unlimited plan
+		// Use default Unlimited plan
 		planID, err = h.q.GetUnlimitedPlan(ctx)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				planID, err = h.q.CreateUnlimitedPlan(ctx)
-				if err != nil {
-					response.Error(c, http.StatusInternalServerError, "Failed to create default plan: "+err.Error())
-					return
-				}
-			} else {
-				response.Error(c, http.StatusInternalServerError, "Database error")
-				return
-			}
+			planID, _ = h.q.CreateUnlimitedPlan(ctx)
 		}
 	}
 
-	// Cancel any existing active subscription
-	_ = h.q.CancelActiveSubscriptions(ctx, orgID)
+	// 3. Cancel existing active subscriptions
+	_ = h.q.CancelActiveSubscriptions(ctx, id)
 
+	// 4. Create new subscription
 	subID, err := h.q.CreateSubscription(ctx, orgdb.CreateSubscriptionParams{
-		OrganisationID: orgID,
+		OrganisationID: id,
 		PlanID:         planID,
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to apply subscription: "+err.Error())
+		response.Error(c, http.StatusInternalServerError, "Failed to apply subscription")
 		return
 	}
 
-	response.Success(c, http.StatusCreated, "Subscription applied successfully", gin.H{
+	response.Success(c, http.StatusOK, "Subscription applied successfully", gin.H{
 		"subscription_id": subID,
-		"organisation_id": orgID,
-		"plan_id":         planID,
-		"status":          "active",
-		"period_end":      "unlimited",
 	})
-}
-
-func nullableStr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

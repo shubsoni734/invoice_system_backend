@@ -19,7 +19,6 @@ import (
 	superadminUsers "github.com/your-org/invoice-backend/internal/domain/superadmin/users"
 	templates "github.com/your-org/invoice-backend/internal/domain/templates"
 	whatsapp "github.com/your-org/invoice-backend/internal/domain/whatsapp"
-	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
@@ -35,14 +34,12 @@ func RegisterRoutes(
 	superAdminIPAllowlist []string,
 	whatsAppAPIURL string,
 	whatsAppAPIKey string,
-	bravoAPIKey string,
-	bravoAPIUser string,
 ) {
-	emailClient := email.NewClient(bravoAPIKey, bravoAPIUser)
 	// Health
 	router.GET("/health", func(c *gin.Context) {
 		response.Success(c, http.StatusOK, "Server is running", nil)
 	})
+
 	router.GET("/ready", func(c *gin.Context) {
 		if err := db.Ping(c.Request.Context()); err != nil {
 			response.Error(c, http.StatusServiceUnavailable, "Database not ready")
@@ -80,15 +77,12 @@ func RegisterRoutes(
 	superAdmin.Use(middleware.RateLimit(authRateLimiter))
 	{
 		superadminAuth.RegisterRoutes(superAdmin, db, superJWT, authRateLimiter, superAdminIPAllowlist)
+		
+		// Sub-groups for cleaner paths
+		orgsGroup := superAdmin.Group("/organisations")
+		usersGroup := superAdmin.Group("/users")
 
-		protected := superAdmin.Group("")
-		protected.Use(middleware.SuperAuth(superJWT, superAdminIPAllowlist))
-		{
-			orgsGroup := protected.Group("/organisations")
-			superadminOrgs.RegisterRoutes(orgsGroup, db, emailClient)
-
-			usersGroup := protected.Group("/users")
-			superadminUsers.RegisterRoutes(orgsGroup, usersGroup, db)
-		}
+		superadminOrgs.RegisterRoutes(superAdmin, db)
+		superadminUsers.RegisterRoutes(orgsGroup, usersGroup, db)
 	}
 }

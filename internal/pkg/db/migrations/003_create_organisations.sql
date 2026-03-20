@@ -9,7 +9,6 @@ CREATE TABLE organisations (
     logo_url                  TEXT,
     status                    VARCHAR(20) NOT NULL DEFAULT 'active',
     created_by_super_admin_id UUID REFERENCES super_admins(id),
-    password_hash             TEXT,
     created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -35,9 +35,9 @@ func (q *Queries) CountOrganisations(ctx context.Context) (int32, error) {
 }
 
 const createOrganisation = `-- name: CreateOrganisation :one
-INSERT INTO organisations (name, slug, email, phone, address, status, created_by_super_admin_id, password_hash, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, NOW(), NOW())
-RETURNING id, name, slug, email, password_hash, created_at
+INSERT INTO organisations (name, slug, email, phone, address, status, created_by_super_admin_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW(), NOW())
+RETURNING id, name, slug, email, created_at
 `
 
 type CreateOrganisationParams struct {
@@ -47,16 +47,14 @@ type CreateOrganisationParams struct {
 	Phone                 *string     `json:"phone"`
 	Address               *string     `json:"address"`
 	CreatedBySuperAdminID pgtype.UUID `json:"created_by_super_admin_id"`
-	PasswordHash          *string     `json:"password_hash"`
 }
 
 type CreateOrganisationRow struct {
-	ID           uuid.UUID          `json:"id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Email        *string            `json:"email"`
-	PasswordHash *string            `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID        uuid.UUID          `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Email     *string            `json:"email"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) CreateOrganisation(ctx context.Context, arg CreateOrganisationParams) (CreateOrganisationRow, error) {
@@ -67,7 +65,6 @@ func (q *Queries) CreateOrganisation(ctx context.Context, arg CreateOrganisation
 		arg.Phone,
 		arg.Address,
 		arg.CreatedBySuperAdminID,
-		arg.PasswordHash,
 	)
 	var i CreateOrganisationRow
 	err := row.Scan(
@@ -75,14 +72,13 @@ func (q *Queries) CreateOrganisation(ctx context.Context, arg CreateOrganisation
 		&i.Name,
 		&i.Slug,
 		&i.Email,
-		&i.PasswordHash,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const createSubscription = `-- name: CreateSubscription :one
-INSERT INTO organisation_subscriptions
+INSERT INTO organisation_subscriptions 
     (organisation_id, plan_id, status, current_period_start, current_period_end, created_at, updated_at)
 VALUES ($1, $2, 'active', NOW(), NOW() + INTERVAL '100 years', NOW(), NOW())
 RETURNING id
@@ -101,8 +97,8 @@ func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscription
 }
 
 const createUnlimitedPlan = `-- name: CreateUnlimitedPlan :one
-INSERT INTO plans (name, price_monthly, price_yearly, max_users, max_customers,
-    max_invoices_per_month, max_storage_mb, whatsapp_enabled, custom_templates,
+INSERT INTO plans (name, price_monthly, price_yearly, max_users, max_customers, 
+    max_invoices_per_month, max_storage_mb, whatsapp_enabled, custom_templates, 
     api_access, is_active, created_at, updated_at)
 VALUES ('Unlimited', 0, 0, 999999, 999999, 999999, 999999, true, true, true, true, NOW(), NOW())
 RETURNING id
@@ -138,22 +134,21 @@ func (q *Queries) GetActiveSubscription(ctx context.Context, organisationID uuid
 }
 
 const getOrganisationByID = `-- name: GetOrganisationByID :one
-SELECT id, name, slug, email, phone, address, status, password_hash, created_at, updated_at
+SELECT id, name, slug, email, phone, address, status, created_at, updated_at
 FROM organisations
 WHERE id = $1
 `
 
 type GetOrganisationByIDRow struct {
-	ID           uuid.UUID          `json:"id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Email        *string            `json:"email"`
-	Phone        *string            `json:"phone"`
-	Address      *string            `json:"address"`
-	Status       string             `json:"status"`
-	PasswordHash *string            `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID        uuid.UUID          `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Email     *string            `json:"email"`
+	Phone     *string            `json:"phone"`
+	Address   *string            `json:"address"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) GetOrganisationByID(ctx context.Context, id uuid.UUID) (GetOrganisationByIDRow, error) {
@@ -167,7 +162,6 @@ func (q *Queries) GetOrganisationByID(ctx context.Context, id uuid.UUID) (GetOrg
 		&i.Phone,
 		&i.Address,
 		&i.Status,
-		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -196,7 +190,7 @@ func (q *Queries) GetUnlimitedPlan(ctx context.Context) (uuid.UUID, error) {
 }
 
 const listOrganisations = `-- name: ListOrganisations :many
-SELECT id, name, slug, email, phone, status, password_hash, created_at
+SELECT id, name, slug, email, phone, status, created_at
 FROM organisations
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -208,14 +202,13 @@ type ListOrganisationsParams struct {
 }
 
 type ListOrganisationsRow struct {
-	ID           uuid.UUID          `json:"id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Email        *string            `json:"email"`
-	Phone        *string            `json:"phone"`
-	Status       string             `json:"status"`
-	PasswordHash *string            `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID        uuid.UUID          `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Email     *string            `json:"email"`
+	Phone     *string            `json:"phone"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListOrganisations(ctx context.Context, arg ListOrganisationsParams) ([]ListOrganisationsRow, error) {
@@ -234,7 +227,6 @@ func (q *Queries) ListOrganisations(ctx context.Context, arg ListOrganisationsPa
 			&i.Email,
 			&i.Phone,
 			&i.Status,
-			&i.PasswordHash,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

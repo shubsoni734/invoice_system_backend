@@ -108,9 +108,9 @@ type Organisation struct {
 	LogoUrl               *string            `json:"logo_url"`
 	Status                string             `json:"status"`
 	CreatedBySuperAdminID pgtype.UUID        `json:"created_by_super_admin_id"`
-	PasswordHash          *string            `json:"password_hash"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	PasswordHash          *string            `json:"password_hash"`
 }
 
 type OrganisationSubscription struct {
