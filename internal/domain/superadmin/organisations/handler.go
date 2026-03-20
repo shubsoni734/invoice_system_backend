@@ -3,6 +3,7 @@ package organisations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,17 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	orgdb "github.com/your-org/invoice-backend/internal/domain/superadmin/organisations/sqlc"
+	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
 
 type Handler struct {
-	q *orgdb.Queries
+	q           *orgdb.Queries
+	emailClient *email.Client
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{q: orgdb.New(db)}
+func NewHandler(db *pgxpool.Pool, emailClient *email.Client) *Handler {
+	return &Handler{
+		q:           orgdb.New(db),
+		emailClient: emailClient,
+	}
 }
 
 type CreateOrgRequest struct {
@@ -60,6 +66,14 @@ func (h *Handler) CreateOrganisation(c *gin.Context) {
 		}
 	}
 
+	// Generate and hash password
+	rawPassword := utils.GenerateRandomPassword(12)
+	hashedPassword, err := utils.HashPassword(rawPassword)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to hash organization password")
+		return
+	}
+
 	row, err := h.q.CreateOrganisation(ctx, orgdb.CreateOrganisationParams{
 		Name:                  req.Name,
 		Slug:                  slug,
@@ -67,17 +81,32 @@ func (h *Handler) CreateOrganisation(c *gin.Context) {
 		Phone:                 nullableStr(req.Phone),
 		Address:               nullableStr(req.Address),
 		CreatedBySuperAdminID: createdBy,
+		PasswordHash:          nullableStr(hashedPassword),
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to create organisation: "+err.Error())
 		return
 	}
 
+	// Send welcome email if email is provided
+	emailSent := false
+	if req.Email != "" {
+		fmt.Printf("[Handler] Attempting to send welcome email to %s...\n", req.Email)
+		err = h.emailClient.SendWelcomeEmail(req.Email, req.Name, rawPassword)
+		if err == nil {
+			emailSent = true
+		} else {
+			fmt.Printf("[Handler] Email sending failed: %v\n", err)
+		}
+	}
+
 	response.Success(c, http.StatusCreated, "Organisation created successfully", gin.H{
-		"id":    row.ID,
-		"name":  row.Name,
-		"slug":  row.Slug,
-		"email": row.Email,
+		"id":         row.ID,
+		"name":       row.Name,
+		"slug":       row.Slug,
+		"email":         row.Email,
+		"password_hash": row.PasswordHash,
+		"email_sent":    emailSent,
 	})
 }
 

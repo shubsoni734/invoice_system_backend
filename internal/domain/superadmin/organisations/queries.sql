@@ -5,21 +5,21 @@ SELECT EXISTS(SELECT 1 FROM organisations WHERE slug = $1)::boolean;
 SELECT EXISTS(SELECT 1 FROM organisations WHERE id = $1)::boolean;
 
 -- name: CreateOrganisation :one
-INSERT INTO organisations (name, slug, email, phone, address, status, created_by_super_admin_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, 'active', $6, NOW(), NOW())
-RETURNING id, name, slug, email, created_at;
+INSERT INTO organisations (name, slug, email, phone, address, status, created_by_super_admin_id, password_hash, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, NOW(), NOW())
+RETURNING id, name, slug, email, password_hash, created_at;
 
 -- name: CountOrganisations :one
 SELECT COUNT(*)::int FROM organisations;
 
 -- name: ListOrganisations :many
-SELECT id, name, slug, email, phone, status, created_at
+SELECT id, name, slug, email, phone, status, password_hash, created_at
 FROM organisations
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
 
 -- name: GetOrganisationByID :one
-SELECT id, name, slug, email, phone, address, status, created_at, updated_at
+SELECT id, name, slug, email, phone, address, status, password_hash, created_at, updated_at
 FROM organisations
 WHERE id = $1;
 

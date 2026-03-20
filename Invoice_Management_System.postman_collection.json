@@ -1,0 +1,747 @@
+{
+  "info": {
+    "name": "Invoice Management System",
+    "_postman_id": "invoice-mgmt-system-v1",
+    "description": "Complete API collection for Invoice Management System backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "org_token", "value": "", "type": "string" },
+    { "key": "super_token", "value": "", "type": "string" },
+    { "key": "invoice_id", "value": "", "type": "string" },
+    { "key": "customer_id", "value": "", "type": "string" },
+    { "key": "service_id", "value": "", "type": "string" },
+    { "key": "session_id", "value": "", "type": "string" },
+    { "key": "template_id", "value": "", "type": "string" },
+    { "key": "org_id", "value": "", "type": "string" },
+    { "key": "payment_id", "value": "", "type": "string" },
+    { "key": "user_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": { "method": "GET", "url": "{{base_url}}/health" }
+        },
+        {
+          "name": "Readiness Check",
+          "request": { "method": "GET", "url": "{{base_url}}/ready" }
+        }
+      ]
+    },
+    {
+      "name": "SuperAdmin / Auth",
+      "item": [
+        {
+          "name": "Create SuperAdmin",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/auth/create",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"superadmin@example.com\",\n  \"password\": \"SuperSecret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "SuperAdmin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.access_token) {",
+                  "  pm.collectionVariables.set('super_token', res.data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"superadmin@example.com\",\n  \"password\": \"SuperSecret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "SuperAdmin Get Me",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/superadmin/auth/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{super_token}}" }]
+          }
+        },
+        {
+          "name": "SuperAdmin Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/auth/logout",
+            "header": [{ "key": "Authorization", "value": "Bearer {{super_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "SuperAdmin / Organisations",
+      "item": [
+        {
+          "name": "Create Organisation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('org_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/organisations",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{super_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Corp\",\n  \"email\": \"admin@acme.com\",\n  \"phone\": \"+911234567890\",\n  \"address\": \"123 Main St, Mumbai\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Organisations",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/superadmin/organisations?page=1&per_page=10",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "per_page", "value": "10" }
+              ]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{super_token}}" }]
+          }
+        },
+        {
+          "name": "Get Organisation",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/superadmin/organisations/{{org_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{super_token}}" }]
+          }
+        },
+        {
+          "name": "Apply Subscription",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/organisations/{{org_id}}/subscription",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{super_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SuperAdmin / Users",
+      "item": [
+        {
+          "name": "List Org Users",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/superadmin/organisations/{{org_id}}/users",
+            "header": [{ "key": "Authorization", "value": "Bearer {{super_token}}" }]
+          }
+        },
+        {
+          "name": "Create Org User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('user_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/superadmin/organisations/{{org_id}}/users",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{super_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@acme.com\",\n  \"password\": \"Password123\",\n  \"name\": \"John Owner\",\n  \"role\": \"admin\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Enable / Disable User",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/superadmin/users/{{user_id}}/status",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{super_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin / Auth",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.access_token) {",
+                  "  pm.collectionVariables.set('org_token', res.data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@acme.com\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/auth/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/auth/logout",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "Get Settings",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/settings",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Update Settings",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/settings",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"business_name\": \"Acme Corp\",\n  \"business_email\": \"billing@acme.com\",\n  \"business_phone\": \"+911234567890\",\n  \"business_address\": \"123 Main St, Mumbai, MH 400001\",\n  \"currency\": \"INR\",\n  \"date_format\": \"DD/MM/YYYY\",\n  \"invoice_prefix\": \"INV\",\n  \"default_due_days\": 30,\n  \"default_tax_rate\": 18,\n  \"whatsapp_enabled\": false,\n  \"whatsapp_message_template\": \"Hello {customer_name}, your invoice #{invoice_number} of ₹{amount} is ready.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "List Customers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/customers",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Create Customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('customer_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/customers",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rajesh Kumar\",\n  \"email\": \"rajesh@example.com\",\n  \"phone\": \"+919876543210\",\n  \"address\": \"456 Park Ave, Delhi\",\n  \"tax_number\": \"GSTIN123456789\",\n  \"is_active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rajesh Kumar Updated\",\n  \"phone\": \"+919999999999\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Customer",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/customers/{{customer_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Services",
+      "item": [
+        {
+          "name": "List Services",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/services",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Service",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Create Service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('service_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/services",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Web Development\",\n  \"description\": \"Full-stack web development service\",\n  \"unit_price\": 5000.00,\n  \"tax_rate\": 18,\n  \"unit\": \"hour\",\n  \"is_active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Service",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"unit_price\": 6000.00,\n  \"tax_rate\": 18\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Service",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/services/{{service_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoice Sessions",
+      "item": [
+        {
+          "name": "List Invoice Sessions",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoice-sessions",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Invoice Session",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoice-sessions/{{session_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Create Invoice Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('session_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/invoice-sessions",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"year\": 2025,\n  \"prefix\": \"INV-2025-\",\n  \"current_sequence\": 0\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/templates",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Template",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/templates/{{template_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Create Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('template_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/templates",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Default Template\",\n  \"html_content\": \"<html><body><h1>Invoice {{invoice_number}}</h1></body></html>\",\n  \"is_default\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Template",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/templates/{{template_id}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Template\",\n  \"is_default\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Template",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/templates/{{template_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "List Invoices",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Invoice",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Create Invoice",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.invoice && res.data.invoice.id) {",
+                  "  pm.collectionVariables.set('invoice_id', res.data.invoice.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/invoices",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"session_id\": \"{{session_id}}\",\n  \"invoice_number\": \"INV-2025-001\",\n  \"issued_date\": \"2025-03-17\",\n  \"due_date\": \"2025-04-17\",\n  \"currency\": \"INR\",\n  \"notes\": \"Thank you for your business.\",\n  \"terms\": \"Payment due within 30 days.\",\n  \"items\": [\n    {\n      \"service_id\": \"{{service_id}}\",\n      \"description\": \"Web Development - 10 hours\",\n      \"quantity\": 10,\n      \"unit_price\": 5000.00,\n      \"tax_rate\": 18,\n      \"sort_order\": 1\n    },\n    {\n      \"description\": \"Domain Registration\",\n      \"quantity\": 1,\n      \"unit_price\": 1500.00,\n      \"tax_rate\": 18,\n      \"sort_order\": 2\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Cancel Invoice",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}/cancel",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Download Invoice PDF",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}/pdf",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Get Invoice Payments",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/invoices/{{invoice_id}}/payments",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Record Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.id) {",
+                  "  pm.collectionVariables.set('payment_id', res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/payments",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_id\": \"{{invoice_id}}\",\n  \"amount\": 59000.00,\n  \"method\": \"bank_transfer\",\n  \"reference\": \"TXN123456\",\n  \"notes\": \"Full payment received\",\n  \"payment_date\": \"2025-03-17\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Payment",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/payments/{{payment_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "item": [
+        {
+          "name": "Send WhatsApp Message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/whatsapp/send",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"invoice_id\": \"{{invoice_id}}\",\n  \"recipient_phone\": \"+919876543210\",\n  \"message\": \"Hello Rajesh, your invoice #INV-2025-001 of ₹59000 is ready. Thank you for your business.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get WhatsApp Logs",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/whatsapp/logs",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Daily Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/daily?date=2025-03-17",
+              "query": [{ "key": "date", "value": "2025-03-17" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Monthly Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/reports/monthly?year=2025&month=3",
+              "query": [
+                { "key": "year", "value": "2025" },
+                { "key": "month", "value": "3" }
+              ]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Customer Invoice History",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/reports/customer/{{customer_id}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        },
+        {
+          "name": "Revenue Summary (12 months)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/reports/revenue",
+            "header": [{ "key": "Authorization", "value": "Bearer {{org_token}}" }]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -7,8 +7,9 @@ CREATE TABLE organisations (
     phone                     TEXT,
     address                   TEXT,
     logo_url                  TEXT,
-    status                    TEXT NOT NULL DEFAULT 'active',
-    created_by_super_admin_id UUID REFERENCES super_admins(id) ON DELETE SET NULL,
+    status                    VARCHAR(20) NOT NULL DEFAULT 'active',
+    created_by_super_admin_id UUID REFERENCES super_admins(id),
+    password_hash             TEXT,
     created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

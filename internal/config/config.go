@@ -18,6 +18,7 @@ type Config struct {
 	WhatsApp   WhatsAppConfig
 	Logging    LoggingConfig
 	SuperAdmin SuperAdminConfig
+	Bravo      BravoConfig
 }
 
 type ServerConfig struct {
@@ -63,6 +64,13 @@ type LoggingConfig struct {
 type SuperAdminConfig struct {
 	IPAllowlist []string
 }
+
+type BravoConfig struct {
+	APIKey   string
+	Username string
+}
+
+
 
 func Load() (*Config, error) {
 	viper.SetConfigName(".env")
@@ -116,9 +124,29 @@ func Load() (*Config, error) {
 			Format: getEnv("LOG_FORMAT", "json"),
 		},
 		SuperAdmin: SuperAdminConfig{
-			IPAllowlist: strings.Split(getEnv("SA_IP_ALLOWLIST", ""), ","),
+			IPAllowlist: func() []string {
+				val := getEnv("SA_IP_ALLOWLIST", "")
+				if val == "" {
+					return []string{}
+				}
+				parts := strings.Split(val, ",")
+				var clean []string
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						clean = append(clean, p)
+					}
+				}
+				return clean
+			}(),
 		},
+		Bravo: BravoConfig{
+			APIKey:   getEnv("BRAVO_KEY_SECRET", ""),
+			Username: getEnv("BRAVO_SMTP_USER", ""),
+		},
+
 	}
+
 
 	// Validate required fields
 	var missing []string

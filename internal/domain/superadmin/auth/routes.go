@@ -8,7 +8,7 @@ import (
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 )
 
-func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, jwtManager *utils.JWTManager, authRateLimiter *middleware.RateLimiter) {
+func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, jwtManager *utils.JWTManager, authRateLimiter *middleware.RateLimiter, ipAllowlist []string) {
 	q := authdb.New(db)
 	handler := NewHandler(q, jwtManager)
 
@@ -20,8 +20,9 @@ func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, jwtManager *utils
 		public.POST("/login", handler.Login)
 	}
 
-	// Protected routes — SuperAuth applied at router level in app/routes.go
+	// Protected routes
 	protected := router.Group("/auth")
+	protected.Use(middleware.SuperAuth(jwtManager, ipAllowlist))
 	{
 		protected.GET("/me", handler.GetMe)
 		protected.POST("/logout", handler.Logout)
