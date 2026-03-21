@@ -70,8 +70,6 @@ type BravoConfig struct {
 	Username string
 }
 
-
-
 func Load() (*Config, error) {
 	viper.SetConfigName(".env")
 	viper.SetConfigType("env")
@@ -88,7 +86,7 @@ func Load() (*Config, error) {
 		Server: ServerConfig{
 			Port:           getEnv("SERVER_PORT", "8080"),
 			Environment:    getEnv("ENVIRONMENT", "development"),
-			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:3000"), ","),
+			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:8081"), ","),
 		},
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", ""),
@@ -144,9 +142,7 @@ func Load() (*Config, error) {
 			APIKey:   getEnv("BRAVO_KEY_SECRET", ""),
 			Username: getEnv("BRAVO_SMTP_USER", ""),
 		},
-
 	}
-
 
 	// Validate required fields
 	var missing []string
