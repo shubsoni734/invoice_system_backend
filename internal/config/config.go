@@ -25,6 +25,7 @@ type ServerConfig struct {
 	Port           string
 	Environment    string
 	AllowedOrigins []string
+	FrontendURL    string
 }
 
 type DatabaseConfig struct {
@@ -87,6 +88,7 @@ func Load() (*Config, error) {
 			Port:           getEnv("SERVER_PORT", "8080"),
 			Environment:    getEnv("ENVIRONMENT", "development"),
 			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:8081"), ","),
+			FrontendURL:    getEnv("FRONTEND_URL", "http://localhost:5173"),
 		},
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", ""),

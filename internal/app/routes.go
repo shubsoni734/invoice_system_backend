@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	adminAuth "github.com/your-org/invoice-backend/internal/domain/auth"
+	common "github.com/your-org/invoice-backend/internal/domain/common"
 	customers "github.com/your-org/invoice-backend/internal/domain/customers"
 	invoices "github.com/your-org/invoice-backend/internal/domain/invoices"
 	invoicesessions "github.com/your-org/invoice-backend/internal/domain/invoicesessions"
@@ -20,6 +21,7 @@ import (
 	superadminUsers "github.com/your-org/invoice-backend/internal/domain/superadmin/users"
 	templates "github.com/your-org/invoice-backend/internal/domain/templates"
 	whatsapp "github.com/your-org/invoice-backend/internal/domain/whatsapp"
+	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
@@ -35,6 +37,8 @@ func RegisterRoutes(
 	superAdminIPAllowlist []string,
 	whatsAppAPIURL string,
 	whatsAppAPIKey string,
+	emailClient *email.Client,
+	frontendURL string,
 ) {
 	// Health
 	router.GET("/health", func(c *gin.Context) {
@@ -59,8 +63,9 @@ func RegisterRoutes(
 		protected.Use(middleware.RateLimit(apiRateLimiter))
 		protected.Use(middleware.Auth(orgJWT))
 		protected.Use(middleware.Tenant(db))
-
-		adminAuth.RegisterRoutes(authPublic, protected, db, orgJWT)
+		
+		common.RegisterRoutes(apiV1, emailClient)
+		adminAuth.RegisterRoutes(authPublic, protected, db, orgJWT, emailClient, frontendURL)
 		roles.RegisterRoutes(protected, db)
 		settings.RegisterRoutes(protected, db)
 		customers.RegisterRoutes(protected, db)

@@ -35,6 +35,23 @@
       ]
     },
     {
+      "name": "Common",
+      "item": [
+        {
+          "name": "Test Email",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/common/test-email",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testemail@example.com\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "SuperAdmin / Auth",
       "item": [
         {
