@@ -12,6 +12,7 @@ import (
 	payments "github.com/your-org/invoice-backend/internal/domain/payments"
 	invoicepdf "github.com/your-org/invoice-backend/internal/domain/pdf"
 	reports "github.com/your-org/invoice-backend/internal/domain/reports"
+	roles "github.com/your-org/invoice-backend/internal/domain/roles"
 	services "github.com/your-org/invoice-backend/internal/domain/services"
 	settings "github.com/your-org/invoice-backend/internal/domain/settings"
 	superadminAuth "github.com/your-org/invoice-backend/internal/domain/superadmin/auth"
@@ -60,6 +61,7 @@ func RegisterRoutes(
 		protected.Use(middleware.Tenant(db))
 
 		adminAuth.RegisterRoutes(authPublic, protected, db, orgJWT)
+		roles.RegisterRoutes(protected, db)
 		settings.RegisterRoutes(protected, db)
 		customers.RegisterRoutes(protected, db)
 		services.RegisterRoutes(protected, db)

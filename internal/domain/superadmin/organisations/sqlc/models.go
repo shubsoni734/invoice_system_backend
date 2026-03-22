@@ -110,7 +110,6 @@ type Organisation struct {
 	CreatedBySuperAdminID pgtype.UUID        `json:"created_by_super_admin_id"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
-	PasswordHash          *string            `json:"password_hash"`
 }
 
 type OrganisationSubscription struct {
@@ -125,6 +124,14 @@ type OrganisationSubscription struct {
 	ExternalID         *string            `json:"external_id"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PasswordReset struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type Payment struct {
@@ -166,6 +173,16 @@ type RefreshToken struct {
 	IpAddress *netip.Addr        `json:"ip_address"`
 	UserAgent *string            `json:"user_agent"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Role struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	Name           string             `json:"name"`
+	Description    *string            `json:"description"`
+	IsSystem       bool               `json:"is_system"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Service struct {
@@ -263,6 +280,7 @@ type User struct {
 	LastLoginAt    pgtype.Timestamptz `json:"last_login_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	RoleID         pgtype.UUID        `json:"role_id"`
 }
 
 type WhatsappLog struct {

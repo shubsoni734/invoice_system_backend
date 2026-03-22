@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	usersdb "github.com/your-org/invoice-backend/internal/domain/superadmin/users/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
@@ -21,10 +22,11 @@ func NewHandler(q *usersdb.Queries) *Handler {
 }
 
 type CreateUserRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
-	Name     string `json:"name" binding:"required"`
-	Role     string `json:"role"`
+	Email    string     `json:"email" binding:"required,email"`
+	Password string     `json:"password" binding:"required,min=8"`
+	Name     string     `json:"name" binding:"required"`
+	Role     string     `json:"role"`
+	RoleID   *uuid.UUID `json:"role_id"`
 }
 
 type SetStatusRequest struct {
@@ -82,7 +84,55 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	// Logic for Role and First User
+	userCount, _ := h.q.GetOrgUserCount(ctx, orgID)
+	
 	role := req.Role
+	var roleID pgtype.UUID
+	
+	if userCount == 0 {
+		// First user is always admin
+		role = constants.RoleOrgAdmin
+		// Check if Admin role exists, if not create it
+		adminRole, err := h.q.GetRoleByName(ctx, usersdb.GetRoleByNameParams{
+			OrganisationID: orgID,
+			Name:           "Admin",
+		})
+		if err != nil {
+			// Create Admin role
+			desc := "Administrator with full access"
+			adminRole, _ = h.q.CreateRole(ctx, usersdb.CreateRoleParams{
+				OrganisationID: orgID,
+				Name:           "Admin",
+				Description:    &desc,
+				IsSystem:       true,
+			})
+		}
+		roleID = pgtype.UUID{Bytes: adminRole.ID, Valid: true}
+	} else {
+		if req.RoleID != nil {
+			roleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
+			// Verify role exists
+			_, err = h.q.GetRoleByID(ctx, usersdb.GetRoleByIDParams{
+				ID:             *req.RoleID,
+				OrganisationID: orgID,
+			})
+			if err != nil {
+				response.Error(c, http.StatusBadRequest, "Invalid Role ID for this organization")
+				return
+			}
+		} else if role == constants.RoleOrgAdmin {
+			// If type is admin, find or create admin role
+			adminRole, err := h.q.GetRoleByName(ctx, usersdb.GetRoleByNameParams{
+				OrganisationID: orgID,
+				Name:           "Admin",
+			})
+			if err == nil {
+				roleID = pgtype.UUID{Bytes: adminRole.ID, Valid: true}
+			}
+		}
+	}
+
 	if role == "" {
 		role = constants.RoleOrgViewer
 	}
@@ -93,6 +143,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		PasswordHash:   hash,
 		Name:           req.Name,
 		Role:           role,
+		RoleID:         roleID,
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to create user")

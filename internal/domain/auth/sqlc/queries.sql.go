@@ -13,6 +13,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createPasswordResetToken = `-- name: CreatePasswordResetToken :one
+INSERT INTO password_resets (user_id, token_hash, expires_at, created_at)
+VALUES ($1, $2, $3, NOW())
+RETURNING id, user_id, token_hash, expires_at, created_at
+`
+
+type CreatePasswordResetTokenParams struct {
+	UserID    uuid.UUID          `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) CreatePasswordResetToken(ctx context.Context, arg CreatePasswordResetTokenParams) (PasswordReset, error) {
+	row := q.db.QueryRow(ctx, createPasswordResetToken, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	var i PasswordReset
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createRefreshToken = `-- name: CreateRefreshToken :one
 INSERT INTO refresh_tokens (user_id, token_hash, expires_at, ip_address, user_agent, created_at)
 VALUES ($1, $2, $3, $4, $5, NOW())
@@ -49,6 +74,45 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 	return i, err
 }
 
+const deletePasswordResetToken = `-- name: DeletePasswordResetToken :exec
+DELETE FROM password_resets
+WHERE id = $1
+`
+
+func (q *Queries) DeletePasswordResetToken(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deletePasswordResetToken, id)
+	return err
+}
+
+const deleteUserPasswordResets = `-- name: DeleteUserPasswordResets :exec
+DELETE FROM password_resets
+WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserPasswordResets(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserPasswordResets, userID)
+	return err
+}
+
+const getPasswordResetToken = `-- name: GetPasswordResetToken :one
+SELECT id, user_id, token_hash, expires_at, created_at
+FROM password_resets
+WHERE token_hash = $1 AND expires_at > NOW()
+`
+
+func (q *Queries) GetPasswordResetToken(ctx context.Context, tokenHash string) (PasswordReset, error) {
+	row := q.db.QueryRow(ctx, getPasswordResetToken, tokenHash)
+	var i PasswordReset
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getRefreshToken = `-- name: GetRefreshToken :one
 SELECT id, user_id, token_hash, expires_at, revoked_at, ip_address, user_agent, created_at
 FROM refresh_tokens
@@ -72,14 +136,30 @@ func (q *Queries) GetRefreshToken(ctx context.Context, tokenHash string) (Refres
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, organisation_id, email, password_hash, name, role, is_active, failed_attempts, locked_until, last_login_at, created_at, updated_at
+SELECT id, organisation_id, email, password_hash, name, role, role_id, is_active, failed_attempts, locked_until, last_login_at, created_at, updated_at
 FROM users
 WHERE email = $1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+type GetUserByEmailRow struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	Name           string             `json:"name"`
+	Role           string             `json:"role"`
+	RoleID         pgtype.UUID        `json:"role_id"`
+	IsActive       bool               `json:"is_active"`
+	FailedAttempts int32              `json:"failed_attempts"`
+	LockedUntil    pgtype.Timestamptz `json:"locked_until"`
+	LastLoginAt    pgtype.Timestamptz `json:"last_login_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i User
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganisationID,
@@ -87,6 +167,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.PasswordHash,
 		&i.Name,
 		&i.Role,
+		&i.RoleID,
 		&i.IsActive,
 		&i.FailedAttempts,
 		&i.LockedUntil,
@@ -98,14 +179,30 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, organisation_id, email, password_hash, name, role, is_active, failed_attempts, locked_until, last_login_at, created_at, updated_at
+SELECT id, organisation_id, email, password_hash, name, role, role_id, is_active, failed_attempts, locked_until, last_login_at, created_at, updated_at
 FROM users
 WHERE id = $1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+type GetUserByIDRow struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	Name           string             `json:"name"`
+	Role           string             `json:"role"`
+	RoleID         pgtype.UUID        `json:"role_id"`
+	IsActive       bool               `json:"is_active"`
+	FailedAttempts int32              `json:"failed_attempts"`
+	LockedUntil    pgtype.Timestamptz `json:"locked_until"`
+	LastLoginAt    pgtype.Timestamptz `json:"last_login_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i User
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganisationID,
@@ -113,6 +210,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.PasswordHash,
 		&i.Name,
 		&i.Role,
+		&i.RoleID,
 		&i.IsActive,
 		&i.FailedAttempts,
 		&i.LockedUntil,
@@ -166,5 +264,21 @@ WHERE id = $1
 
 func (q *Queries) RevokeRefreshToken(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, revokeRefreshToken, id)
+	return err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2, updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           uuid.UUID `json:"id"`
+	PasswordHash string    `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
 }

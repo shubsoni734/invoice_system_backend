@@ -156,6 +156,17 @@ func (h *Handler) GetMe(c *gin.Context) {
 	})
 }
 
+type LogoutRequest struct{}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=8"`
+}
+
 // Logout POST /api/v1/auth/logout
 func (h *Handler) Logout(c *gin.Context) {
 	rawID := c.GetString(constants.CtxUserID)
@@ -172,4 +183,91 @@ func (h *Handler) Logout(c *gin.Context) {
 
 	_ = h.q.RevokeAllUserTokens(context.Background(), id)
 	response.Success(c, http.StatusOK, "Logout successful", nil)
+}
+
+// ForgotPassword POST /api/v1/auth/forgot-password
+func (h *Handler) ForgotPassword(c *gin.Context) {
+	var req ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		return
+	}
+
+	ctx := context.Background()
+
+	// 1. Verify user exists
+	user, err := h.q.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "User not found")
+		return
+	}
+
+	// 2. Generate random token
+	token := utils.GenerateRandomToken(32)
+	tokenHash := utils.HashToken(token)
+
+	// 3. Store token with 10 min expiry
+	expiresAt := pgtype.Timestamptz{Time: time.Now().Add(10 * time.Minute), Valid: true}
+	
+	// Delete any existing tokens for this user first
+	_ = h.q.DeleteUserPasswordResets(ctx, user.ID)
+
+	_, err = h.q.CreatePasswordResetToken(ctx, adminauthdb.CreatePasswordResetTokenParams{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to generate reset token")
+		return
+	}
+
+	// 4. Return token
+	response.Success(c, http.StatusOK, "Password reset token generated", gin.H{
+		"token":      token,
+		"expires_in": "10 minutes",
+	})
+}
+
+// ResetPassword POST /api/v1/auth/reset-password
+func (h *Handler) ResetPassword(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		return
+	}
+
+	ctx := context.Background()
+	tokenHash := utils.HashToken(req.Token)
+
+	// 1. Verify token
+	reset, err := h.q.GetPasswordResetToken(ctx, tokenHash)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "Invalid or expired token")
+		return
+	}
+
+	// 2. Hash new password
+	newHash, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to hash password")
+		return
+	}
+
+	// 3. Update user password
+	err = h.q.UpdateUserPassword(ctx, adminauthdb.UpdateUserPasswordParams{
+		ID:           reset.UserID,
+		PasswordHash: newHash,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to update password")
+		return
+	}
+
+	// 4. Cleanup token
+	_ = h.q.DeletePasswordResetToken(ctx, reset.ID)
+	// Also revoke all active refresh tokens for security
+	_ = h.q.RevokeAllUserTokens(ctx, reset.UserID)
+
+	response.Success(c, http.StatusOK, "Password changed successfully", nil)
 }

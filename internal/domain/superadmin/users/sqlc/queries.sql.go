@@ -13,17 +13,18 @@ import (
 )
 
 const createOrgUser = `-- name: CreateOrgUser :one
-INSERT INTO users (organisation_id, email, password_hash, name, role, is_active, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-RETURNING id, organisation_id, email, name, role, is_active, created_at
+INSERT INTO users (organisation_id, email, password_hash, name, role, role_id, is_active, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+RETURNING id, organisation_id, email, name, role, role_id, is_active, created_at
 `
 
 type CreateOrgUserParams struct {
-	OrganisationID uuid.UUID `json:"organisation_id"`
-	Email          string    `json:"email"`
-	PasswordHash   string    `json:"password_hash"`
-	Name           string    `json:"name"`
-	Role           string    `json:"role"`
+	OrganisationID uuid.UUID   `json:"organisation_id"`
+	Email          string      `json:"email"`
+	PasswordHash   string      `json:"password_hash"`
+	Name           string      `json:"name"`
+	Role           string      `json:"role"`
+	RoleID         pgtype.UUID `json:"role_id"`
 }
 
 type CreateOrgUserRow struct {
@@ -32,6 +33,7 @@ type CreateOrgUserRow struct {
 	Email          string             `json:"email"`
 	Name           string             `json:"name"`
 	Role           string             `json:"role"`
+	RoleID         pgtype.UUID        `json:"role_id"`
 	IsActive       bool               `json:"is_active"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
@@ -43,6 +45,7 @@ func (q *Queries) CreateOrgUser(ctx context.Context, arg CreateOrgUserParams) (C
 		arg.PasswordHash,
 		arg.Name,
 		arg.Role,
+		arg.RoleID,
 	)
 	var i CreateOrgUserRow
 	err := row.Scan(
@@ -51,10 +54,157 @@ func (q *Queries) CreateOrgUser(ctx context.Context, arg CreateOrgUserParams) (C
 		&i.Email,
 		&i.Name,
 		&i.Role,
+		&i.RoleID,
 		&i.IsActive,
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const createRole = `-- name: CreateRole :one
+INSERT INTO roles (organisation_id, name, description, is_system, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
+RETURNING id, organisation_id, name, description, is_system, created_at, updated_at
+`
+
+type CreateRoleParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Name           string    `json:"name"`
+	Description    *string   `json:"description"`
+	IsSystem       bool      `json:"is_system"`
+}
+
+func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, createRole,
+		arg.OrganisationID,
+		arg.Name,
+		arg.Description,
+		arg.IsSystem,
+	)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Name,
+		&i.Description,
+		&i.IsSystem,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteRole = `-- name: DeleteRole :exec
+DELETE FROM roles
+WHERE id = $1 AND organisation_id = $2
+`
+
+type DeleteRoleParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) error {
+	_, err := q.db.Exec(ctx, deleteRole, arg.ID, arg.OrganisationID)
+	return err
+}
+
+const getOrgUserCount = `-- name: GetOrgUserCount :one
+SELECT COUNT(*)::bigint FROM users WHERE organisation_id = $1
+`
+
+func (q *Queries) GetOrgUserCount(ctx context.Context, organisationID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, getOrgUserCount, organisationID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const getRoleByID = `-- name: GetRoleByID :one
+SELECT id, organisation_id, name, description, is_system, created_at, updated_at
+FROM roles
+WHERE id = $1 AND organisation_id = $2
+`
+
+type GetRoleByIDParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) GetRoleByID(ctx context.Context, arg GetRoleByIDParams) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleByID, arg.ID, arg.OrganisationID)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Name,
+		&i.Description,
+		&i.IsSystem,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getRoleByName = `-- name: GetRoleByName :one
+SELECT id, organisation_id, name, description, is_system, created_at, updated_at
+FROM roles
+WHERE organisation_id = $1 AND name = $2
+`
+
+type GetRoleByNameParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Name           string    `json:"name"`
+}
+
+func (q *Queries) GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleByName, arg.OrganisationID, arg.Name)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Name,
+		&i.Description,
+		&i.IsSystem,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listRolesByOrg = `-- name: ListRolesByOrg :many
+SELECT id, organisation_id, name, description, is_system, created_at, updated_at
+FROM roles
+WHERE organisation_id = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListRolesByOrg(ctx context.Context, organisationID uuid.UUID) ([]Role, error) {
+	rows, err := q.db.Query(ctx, listRolesByOrg, organisationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganisationID,
+			&i.Name,
+			&i.Description,
+			&i.IsSystem,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsersByOrg = `-- name: ListUsersByOrg :many
@@ -106,7 +256,7 @@ const setUserStatus = `-- name: SetUserStatus :one
 UPDATE users
 SET is_active = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, organisation_id, email, name, role, is_active, updated_at
+RETURNING id, organisation_id, email, name, role, role_id, is_active, updated_at
 `
 
 type SetUserStatusParams struct {
@@ -120,6 +270,7 @@ type SetUserStatusRow struct {
 	Email          string             `json:"email"`
 	Name           string             `json:"name"`
 	Role           string             `json:"role"`
+	RoleID         pgtype.UUID        `json:"role_id"`
 	IsActive       bool               `json:"is_active"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
@@ -133,7 +284,42 @@ func (q *Queries) SetUserStatus(ctx context.Context, arg SetUserStatusParams) (S
 		&i.Email,
 		&i.Name,
 		&i.Role,
+		&i.RoleID,
 		&i.IsActive,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateRole = `-- name: UpdateRole :one
+UPDATE roles
+SET name = $3, description = $4, updated_at = NOW()
+WHERE id = $1 AND organisation_id = $2
+RETURNING id, organisation_id, name, description, is_system, created_at, updated_at
+`
+
+type UpdateRoleParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Name           string    `json:"name"`
+	Description    *string   `json:"description"`
+}
+
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, updateRole,
+		arg.ID,
+		arg.OrganisationID,
+		arg.Name,
+		arg.Description,
+	)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Name,
+		&i.Description,
+		&i.IsSystem,
+		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
