@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/invoice-backend/internal/app"
 	"github.com/your-org/invoice-backend/internal/config"
+	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"go.uber.org/zap"
@@ -66,6 +67,8 @@ func main() {
 	authRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.AuthRPM)
 	apiRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.APIRPM)
 
+	emailClient := email.NewClient()
+
 	if cfg.Server.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -77,7 +80,7 @@ func main() {
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.CORS(cfg.Server.AllowedOrigins))
 
-	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist, cfg.WhatsApp.APIURL, cfg.WhatsApp.APIKey)
+	app.RegisterRoutes(router, dbPool, orgJWT, superJWT, authRateLimiter, apiRateLimiter, cfg.SuperAdmin.IPAllowlist, cfg.WhatsApp.APIURL, cfg.WhatsApp.APIKey, emailClient, cfg.Server.FrontendURL)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

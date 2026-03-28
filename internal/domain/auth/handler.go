@@ -10,18 +10,26 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	adminauthdb "github.com/your-org/invoice-backend/internal/domain/auth/sqlc"
+	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
 
 type Handler struct {
-	q          *adminauthdb.Queries
-	jwtManager *utils.JWTManager
+	q           *adminauthdb.Queries
+	jwtManager  *utils.JWTManager
+	emailClient *email.Client
+	frontendURL string
 }
 
-func NewHandler(q *adminauthdb.Queries, jwtManager *utils.JWTManager) *Handler {
-	return &Handler{q: q, jwtManager: jwtManager}
+func NewHandler(q *adminauthdb.Queries, jwtManager *utils.JWTManager, emailClient *email.Client, frontendURL string) *Handler {
+	return &Handler{
+		q:           q,
+		jwtManager:  jwtManager,
+		emailClient: emailClient,
+		frontendURL: frontendURL,
+	}
 }
 
 type LoginRequest struct {
@@ -222,11 +230,17 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	// 4. Return token
-	response.Success(c, http.StatusOK, "Password reset token generated", gin.H{
-		"token":      token,
-		"expires_in": "10 minutes",
-	})
+	// 4. Send email
+	err = h.emailClient.SendForgotPasswordEmail(user.Email, token, h.frontendURL)
+	if err != nil {
+		// Log error but don't fail for the user?
+		// User said "logic is when i heat forget password emails is verify then genereate one token"
+		// If email fails, the process is broken.
+		response.Error(c, http.StatusInternalServerError, "Failed to send password reset email")
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Password reset email sent successfully", nil)
 }
 
 // ResetPassword POST /api/v1/auth/reset-password
