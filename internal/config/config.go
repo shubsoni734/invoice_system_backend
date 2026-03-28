@@ -18,7 +18,7 @@ type Config struct {
 	WhatsApp   WhatsAppConfig
 	Logging    LoggingConfig
 	SuperAdmin SuperAdminConfig
-	Bravo      BravoConfig
+	Email      EmailConfig
 }
 
 type ServerConfig struct {
@@ -66,9 +66,11 @@ type SuperAdminConfig struct {
 	IPAllowlist []string
 }
 
-type BravoConfig struct {
-	APIKey   string
+type EmailConfig struct {
+	Host     string
+	Port     string
 	Username string
+	Password string
 }
 
 func Load() (*Config, error) {
@@ -140,9 +142,11 @@ func Load() (*Config, error) {
 				return clean
 			}(),
 		},
-		Bravo: BravoConfig{
-			APIKey:   getEnv("BRAVO_KEY_SECRET", ""),
+		Email: EmailConfig{
+			Host:     getEnv("SMTP_HOST", "smtp-relay.brevo.com"),
+			Port:     getEnv("SMTP_PORT", "587"),
 			Username: getEnv("BRAVO_SMTP_USER", ""),
+			Password: getEnv("BRAVO_KEY_SECRET", ""),
 		},
 	}
 

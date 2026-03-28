@@ -4,23 +4,22 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/smtp"
+
+	"github.com/your-org/invoice-backend/internal/config"
 )
 
-const (
-	smtpHost     = "smtp-relay.brevo.com"
-	smtpPort     = "587"
-	smtpLogin    = "7cfd96001@smtp-brevo.com"
-	smtpPassword = "xsmtpsib-9a99dbe7504b118a2a2d961a7a97b3d299be2dd24298de8d92d877b3ecccace1-oGJL4w4RYcMsb1KJ"
-)
+type Client struct {
+	cfg config.EmailConfig
+}
 
-type Client struct{}
-
-func NewClient() *Client {
-	return &Client{}
+func NewClient(cfg config.EmailConfig) *Client {
+	return &Client{
+		cfg: cfg,
+	}
 }
 
 func (c *Client) dialSMTP() (*smtp.Client, error) {
-	addr := fmt.Sprintf("%s:%s", smtpHost, smtpPort)
+	addr := fmt.Sprintf("%s:%s", c.cfg.Host, c.cfg.Port)
 
 	client, err := smtp.Dial(addr)
 	if err != nil {
@@ -28,13 +27,13 @@ func (c *Client) dialSMTP() (*smtp.Client, error) {
 	}
 
 	tlsConfig := &tls.Config{
-		ServerName: smtpHost,
+		ServerName: c.cfg.Host,
 	}
 	if err = client.StartTLS(tlsConfig); err != nil {
 		return nil, fmt.Errorf("failed to start TLS: %w", err)
 	}
 
-	auth := smtp.PlainAuth("", smtpLogin, smtpPassword, smtpHost)
+	auth := smtp.PlainAuth("", c.cfg.Username, c.cfg.Password, c.cfg.Host)
 	if err = client.Auth(auth); err != nil {
 		return nil, fmt.Errorf("SMTP authentication failed: %w", err)
 	}
@@ -50,7 +49,7 @@ func (c *Client) sendEmail(toEmail, subject, htmlBody string) error {
 	}
 	defer client.Quit()
 
-	if err = client.Mail(smtpLogin); err != nil {
+	if err = client.Mail(c.cfg.Username); err != nil {
 		return fmt.Errorf("failed to set sender: %w", err)
 	}
 
@@ -64,7 +63,7 @@ func (c *Client) sendEmail(toEmail, subject, htmlBody string) error {
 	}
 
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n%s",
-		smtpLogin, toEmail, subject, htmlBody)
+		c.cfg.Username, toEmail, subject, htmlBody)
 
 	if _, err = fmt.Fprint(w, msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)

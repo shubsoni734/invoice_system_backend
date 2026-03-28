@@ -63,11 +63,10 @@ func main() {
 		logger.Fatal("Failed to initialize super JWT manager", zap.Error(err))
 	}
 
-
 	authRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.AuthRPM)
 	apiRateLimiter := middleware.NewRateLimiter(cfg.RateLimit.APIRPM)
 
-	emailClient := email.NewClient()
+	emailClient := email.NewClient(cfg.Email)
 
 	if cfg.Server.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)

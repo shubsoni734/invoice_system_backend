@@ -49,7 +49,9 @@ func (h *Handler) Login(c *gin.Context) {
 
 	user, err := h.q.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		response.Error(c, http.StatusUnauthorized, "Invalid email or password")
+		// Log error for internal tracking (optional but helpful)
+		// zap.L().Warn("Login failed: email not found", zap.String("email", req.Email))
+		response.Error(c, http.StatusUnauthorized, "Invalid email address")
 		return
 	}
 
@@ -64,7 +66,7 @@ func (h *Handler) Login(c *gin.Context) {
 
 	if !utils.CheckPassword(user.PasswordHash, req.Password) {
 		_ = h.q.IncrementFailedAttempts(ctx, user.ID)
-		response.Error(c, http.StatusUnauthorized, "Invalid email or password")
+		response.Error(c, http.StatusUnauthorized, "Invalid password")
 		return
 	}
 
