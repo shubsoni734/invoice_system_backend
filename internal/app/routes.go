@@ -20,6 +20,7 @@ import (
 	superadminOrgs "github.com/your-org/invoice-backend/internal/domain/superadmin/organisations"
 	superadminUsers "github.com/your-org/invoice-backend/internal/domain/superadmin/users"
 	templates "github.com/your-org/invoice-backend/internal/domain/templates"
+	users "github.com/your-org/invoice-backend/internal/domain/users"
 	whatsapp "github.com/your-org/invoice-backend/internal/domain/whatsapp"
 	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/middleware"
@@ -67,6 +68,7 @@ func RegisterRoutes(
 		common.RegisterRoutes(apiV1, emailClient)
 		adminAuth.RegisterRoutes(authPublic, protected, db, orgJWT, emailClient, frontendURL)
 		roles.RegisterRoutes(protected, db)
+		users.RegisterRoutes(protected, db)
 		settings.RegisterRoutes(protected, db)
 		customers.RegisterRoutes(protected, db)
 		services.RegisterRoutes(protected, db)
