@@ -14,6 +14,7 @@ func RegisterRoutes(protected *gin.RouterGroup, db *pgxpool.Pool) {
 	{
 		users.GET("", handler.ListUsers)
 		users.POST("", handler.CreateUser)
+		users.PUT("/:id", handler.UpdateUser)
 		users.PUT("/:id/status", handler.SetUserStatus)
 	}
 }

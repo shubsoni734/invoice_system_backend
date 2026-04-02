@@ -425,7 +425,22 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"staff@example.com\",\n  \"password\": \"StaffPassword123\",\n  \"name\": \"Staff Member\",\n  \"role\": \"staff\",\n  \"role_id\": \"{{role_id}}\"\n}"
+              "raw": "{\n  \"email\": \"staff@example.com\",\n  \"password\": \"StaffPassword123\",\n  \"name\": \"Staff Member\",\n  \"role_id\": \"{{role_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/users/{{user_id}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Staff Member Updated\",\n  \"role_id\": \"{{role_id}}\"\n}"
             }
           }
         },

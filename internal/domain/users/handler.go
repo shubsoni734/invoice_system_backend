@@ -24,8 +24,13 @@ type CreateUserRequest struct {
 	Email    string     `json:"email" binding:"required,email"`
 	Password string     `json:"password" binding:"required,min=8"`
 	Name     string     `json:"name" binding:"required"`
-	Role     string     `json:"role"`
 	RoleID   *uuid.UUID `json:"role_id"`
+}
+
+type UpdateUserRequest struct {
+	Name     string     `json:"name"`
+	RoleID   *uuid.UUID `json:"role_id"`
+	Password *string    `json:"password"`
 }
 
 type SetStatusRequest struct {
@@ -91,7 +96,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	// Logic for Role and First User
 	userCount, _ := h.q.GetOrgUserCount(ctx, orgID)
 	
-	role := req.Role
+	role := constants.RoleOrgViewer // default
 	var roleID pgtype.UUID
 	
 	if userCount == 0 {
@@ -107,32 +112,19 @@ func (h *Handler) CreateUser(c *gin.Context) {
 			adminRole, _ = h.q.CreateDefaultAdminRole(ctx, orgID)
 		}
 		roleID = pgtype.UUID{Bytes: adminRole.ID, Valid: true}
-	} else {
-		if req.RoleID != nil {
-			roleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
-			// Verify role exists
-			_, err = h.q.GetRoleByID(ctx, orgusersdb.GetRoleByIDParams{
-				ID:             *req.RoleID,
-				OrganisationID: orgID,
-			})
-			if err != nil {
-				response.Error(c, http.StatusBadRequest, "Invalid Role ID for this organization")
-				return
-			}
-		} else if role == constants.RoleOrgAdmin {
-			// If type is admin, find or create admin role
-			adminRole, err := h.q.GetRoleByName(ctx, orgusersdb.GetRoleByNameParams{
-				OrganisationID: orgID,
-				Name:           "Admin",
-			})
-			if err == nil {
-				roleID = pgtype.UUID{Bytes: adminRole.ID, Valid: true}
-			}
+		role = adminRole.Name
+	} else if req.RoleID != nil {
+		roleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
+		// Verify role exists and get its name
+		roleData, err := h.q.GetRoleByID(ctx, orgusersdb.GetRoleByIDParams{
+			ID:             *req.RoleID,
+			OrganisationID: orgID,
+		})
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, "Invalid Role ID for this organization")
+			return
 		}
-	}
-
-	if role == "" {
-		role = constants.RoleOrgViewer
+		role = roleData.Name
 	}
 
 	user, err := h.q.CreateOrgUser(ctx, orgusersdb.CreateOrgUserParams{
@@ -149,6 +141,58 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusCreated, "User created successfully", user)
+}
+
+// UpdateUser PUT /api/v1/users/:id
+func (h *Handler) UpdateUser(c *gin.Context) {
+	orgID, err := getOrgID(c)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "Invalid organisation ID")
+		return
+	}
+
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	var req UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// Logic for Role update
+	role := ""
+	var roleID pgtype.UUID
+	if req.RoleID != nil {
+		roleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
+		// Fetch role name
+		roleData, err := h.q.GetRoleByID(ctx, orgusersdb.GetRoleByIDParams{
+			ID:             *req.RoleID,
+			OrganisationID: orgID,
+		})
+		if err == nil {
+			role = roleData.Name
+		}
+	}
+
+	user, err := h.q.UpdateOrgUser(ctx, orgusersdb.UpdateOrgUserParams{
+		ID:             userID,
+		OrganisationID: orgID,
+		Name:           req.Name,
+		Role:           role,
+		RoleID:         roleID,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to update user")
+		return
+	}
+
+	response.Success(c, http.StatusOK, "User updated successfully", user)
 }
 
 // SetUserStatus PUT /api/v1/users/:id/status
