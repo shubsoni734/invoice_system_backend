@@ -28,7 +28,8 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Name     string     `json:"name"`
+	Name     *string    `json:"name"`
+	Email    *string    `json:"email"`
 	RoleID   *uuid.UUID `json:"role_id"`
 	Password *string    `json:"password"`
 }
@@ -165,27 +166,49 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Logic for Role update
-	role := ""
-	var roleID pgtype.UUID
+	// 1. Fetch current user
+	currentUser, err := h.q.GetOrgUserByID(ctx, orgusersdb.GetOrgUserByIDParams{
+		ID:             userID,
+		OrganisationID: orgID,
+	})
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "User not found")
+		return
+	}
+
+	// 2. Prepare update data (Merge logic)
+	updateName := currentUser.Name
+	if req.Name != nil {
+		updateName = *req.Name
+	}
+
+	updateEmail := currentUser.Email
+	if req.Email != nil {
+		updateEmail = *req.Email
+	}
+
+	updateRole := currentUser.Role
+	updateRoleID := currentUser.RoleID
 	if req.RoleID != nil {
-		roleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
+		updateRoleID = pgtype.UUID{Bytes: *req.RoleID, Valid: true}
 		// Fetch role name
 		roleData, err := h.q.GetRoleByID(ctx, orgusersdb.GetRoleByIDParams{
 			ID:             *req.RoleID,
 			OrganisationID: orgID,
 		})
 		if err == nil {
-			role = roleData.Name
+			updateRole = roleData.Name
 		}
 	}
 
+	// 3. Save
 	user, err := h.q.UpdateOrgUser(ctx, orgusersdb.UpdateOrgUserParams{
 		ID:             userID,
 		OrganisationID: orgID,
-		Name:           req.Name,
-		Role:           role,
-		RoleID:         roleID,
+		Name:           updateName,
+		Role:           updateRole,
+		RoleID:         updateRoleID,
+		Email:          updateEmail,
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to update user")

@@ -82,6 +82,44 @@ func (q *Queries) CreateOrgUser(ctx context.Context, arg CreateOrgUserParams) (C
 	return i, err
 }
 
+const getOrgUserByID = `-- name: GetOrgUserByID :one
+SELECT id, organisation_id, email, name, role, is_active, role_id, created_at
+FROM users
+WHERE id = $1 AND organisation_id = $2
+`
+
+type GetOrgUserByIDParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+type GetOrgUserByIDRow struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	Email          string             `json:"email"`
+	Name           string             `json:"name"`
+	Role           string             `json:"role"`
+	IsActive       bool               `json:"is_active"`
+	RoleID         pgtype.UUID        `json:"role_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetOrgUserByID(ctx context.Context, arg GetOrgUserByIDParams) (GetOrgUserByIDRow, error) {
+	row := q.db.QueryRow(ctx, getOrgUserByID, arg.ID, arg.OrganisationID)
+	var i GetOrgUserByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.IsActive,
+		&i.RoleID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getOrgUserCount = `-- name: GetOrgUserCount :one
 SELECT COUNT(*)::bigint FROM users WHERE organisation_id = $1
 `
@@ -238,8 +276,8 @@ func (q *Queries) SetUserStatus(ctx context.Context, arg SetUserStatusParams) (S
 
 const updateOrgUser = `-- name: UpdateOrgUser :one
 UPDATE users
-SET name = $1, role = $2, role_id = $3, updated_at = NOW()
-WHERE id = $4 AND organisation_id = $5
+SET name = $1, role = $2, role_id = $3, email = $4, updated_at = NOW()
+WHERE id = $5 AND organisation_id = $6
 RETURNING id, organisation_id, email, name, role, role_id, is_active, updated_at
 `
 
@@ -247,6 +285,7 @@ type UpdateOrgUserParams struct {
 	Name           string      `json:"name"`
 	Role           string      `json:"role"`
 	RoleID         pgtype.UUID `json:"role_id"`
+	Email          string      `json:"email"`
 	ID             uuid.UUID   `json:"id"`
 	OrganisationID uuid.UUID   `json:"organisation_id"`
 }
@@ -267,6 +306,7 @@ func (q *Queries) UpdateOrgUser(ctx context.Context, arg UpdateOrgUserParams) (U
 		arg.Name,
 		arg.Role,
 		arg.RoleID,
+		arg.Email,
 		arg.ID,
 		arg.OrganisationID,
 	)

@@ -11,6 +11,11 @@ INSERT INTO users (organisation_id, email, password_hash, name, role, role_id, i
 VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
 RETURNING id, organisation_id, email, name, role, role_id, is_active, created_at;
 
+-- name: GetOrgUserByID :one
+SELECT id, organisation_id, email, name, role, is_active, role_id, created_at
+FROM users
+WHERE id = $1 AND organisation_id = $2;
+
 -- name: GetOrgUserCount :one
 SELECT COUNT(*)::bigint FROM users WHERE organisation_id = $1;
 
