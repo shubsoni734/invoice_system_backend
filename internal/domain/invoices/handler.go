@@ -58,7 +58,14 @@ func getUserID(c *gin.Context) (uuid.UUID, error) {
 
 func floatToNumeric(f float64) pgtype.Numeric {
 	var num pgtype.Numeric
-	num.Scan(f)
+	strValue := fmt.Sprintf("%v", f)
+	err := num.Scan(strValue)
+	if err != nil {
+		fmt.Printf("floatToNumeric conversion error for %v: %v\n", f, err)
+		num.Valid = false
+	} else {
+		num.Valid = true
+	}
 	return num
 }
 

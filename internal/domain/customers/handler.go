@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	customersdb "github.com/your-org/invoice-backend/internal/domain/customers/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
+	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
 
@@ -50,7 +51,24 @@ func (h *Handler) GetCustomers(c *gin.Context) {
 		return
 	}
 
-	res, err := h.q.GetCustomers(context.Background(), orgID)
+	search := c.Query("search")
+	p := utils.GetPaginationParams(c)
+
+	total, err := h.q.CountCustomers(context.Background(), customersdb.CountCustomersParams{
+		OrganisationID: orgID,
+		Search:         search,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to count customers")
+		return
+	}
+
+	res, err := h.q.GetCustomers(context.Background(), customersdb.GetCustomersParams{
+		OrganisationID: orgID,
+		PerPage:        int32(p.PerPage),
+		Offset:         int32(p.Offset),
+		Search:         search,
+	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch customers")
 		return
@@ -60,7 +78,12 @@ func (h *Handler) GetCustomers(c *gin.Context) {
 		res = []customersdb.Customer{}
 	}
 
-	response.Success(c, http.StatusOK, "Customers retrieved successfully", res)
+	response.SuccessWithMeta(c, http.StatusOK, "Customers retrieved successfully", res, &response.Meta{
+		Page:       p.Page,
+		PerPage:    p.PerPage,
+		Total:      total,
+		TotalPages: utils.CalculateTotalPages(total, p.PerPage),
+	})
 }
 
 // GetCustomerByID GET /api/v1/customers/:id

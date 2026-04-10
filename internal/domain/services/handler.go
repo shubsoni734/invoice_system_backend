@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -45,7 +46,15 @@ func getOrgID(c *gin.Context) (uuid.UUID, error) {
 
 func floatToNumeric(f float64) pgtype.Numeric {
 	var num pgtype.Numeric
-	num.Scan(f)
+	// Use string representation for maximum compatibility with pgx/v5 Scan
+	strValue := fmt.Sprintf("%v", f)
+	err := num.Scan(strValue)
+	if err != nil {
+		fmt.Printf("floatToNumeric conversion error for %v: %v\n", f, err)
+		num.Valid = false
+	} else {
+		num.Valid = true
+	}
 	return num
 }
 
@@ -130,7 +139,8 @@ func (h *Handler) CreateService(c *gin.Context) {
 		IsActive:       isActive,
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to create service")
+		fmt.Printf("CreateService Error: %v\n", err)
+		response.Error(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create service: %v", err))
 		return
 	}
 

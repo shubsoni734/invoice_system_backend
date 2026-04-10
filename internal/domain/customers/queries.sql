@@ -2,7 +2,25 @@
 SELECT *
 FROM customers
 WHERE organisation_id = $1
-ORDER BY created_at DESC;
+AND (
+    sqlc.arg('search')::TEXT = '' OR 
+    name ILIKE '%' || sqlc.arg('search') || '%' OR 
+    email ILIKE '%' || sqlc.arg('search') || '%' OR 
+    phone ILIKE '%' || sqlc.arg('search') || '%'
+)
+ORDER BY created_at DESC
+LIMIT sqlc.arg('per_page') OFFSET sqlc.arg('offset');
+
+-- name: CountCustomers :one
+SELECT COUNT(*)
+FROM customers
+WHERE organisation_id = $1
+AND (
+    sqlc.arg('search')::TEXT = '' OR 
+    name ILIKE '%' || sqlc.arg('search') || '%' OR 
+    email ILIKE '%' || sqlc.arg('search') || '%' OR 
+    phone ILIKE '%' || sqlc.arg('search') || '%'
+);
 
 -- name: GetCustomerByID :one
 SELECT *

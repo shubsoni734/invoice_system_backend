@@ -11,6 +11,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const countCustomers = `-- name: CountCustomers :one
+SELECT COUNT(*)
+FROM customers
+WHERE organisation_id = $1
+AND (
+    $2::TEXT = '' OR 
+    name ILIKE '%' || $2 || '%' OR 
+    email ILIKE '%' || $2 || '%' OR 
+    phone ILIKE '%' || $2 || '%'
+)
+`
+
+type CountCustomersParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Search         string    `json:"search"`
+}
+
+func (q *Queries) CountCustomers(ctx context.Context, arg CountCustomersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countCustomers, arg.OrganisationID, arg.Search)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createCustomer = `-- name: CreateCustomer :one
 INSERT INTO customers (
     organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
@@ -104,11 +128,30 @@ const getCustomers = `-- name: GetCustomers :many
 SELECT id, organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
 FROM customers
 WHERE organisation_id = $1
+AND (
+    $2::TEXT = '' OR 
+    name ILIKE '%' || $2 || '%' OR 
+    email ILIKE '%' || $2 || '%' OR 
+    phone ILIKE '%' || $2 || '%'
+)
 ORDER BY created_at DESC
+LIMIT $4 OFFSET $3
 `
 
-func (q *Queries) GetCustomers(ctx context.Context, organisationID uuid.UUID) ([]Customer, error) {
-	rows, err := q.db.Query(ctx, getCustomers, organisationID)
+type GetCustomersParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Search         string    `json:"search"`
+	Offset         int32     `json:"offset"`
+	PerPage        int32     `json:"per_page"`
+}
+
+func (q *Queries) GetCustomers(ctx context.Context, arg GetCustomersParams) ([]Customer, error) {
+	rows, err := q.db.Query(ctx, getCustomers,
+		arg.OrganisationID,
+		arg.Search,
+		arg.Offset,
+		arg.PerPage,
+	)
 	if err != nil {
 		return nil, err
 	}
