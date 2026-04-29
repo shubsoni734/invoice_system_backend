@@ -89,7 +89,7 @@ func Load() (*Config, error) {
 		Server: ServerConfig{
 			Port:           getEnv("SERVER_PORT", "8080"),
 			Environment:    getEnv("ENVIRONMENT", "development"),
-			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:8081"), ","),
+			AllowedOrigins: strings.Split(getEnv("ALLOWED_ORIGINS", "http://localhost:8081","https://invoice-flow-nine-gamma.vercel.app"), ","),
 			FrontendURL:    getEnv("FRONTEND_URL", "http://localhost:5173"),
 		},
 		Database: DatabaseConfig{
