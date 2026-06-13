@@ -9,47 +9,272 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const countServices = `-- name: CountServices :one
+SELECT COUNT(*)
+FROM services
+WHERE organisation_id = $1
+AND (
+    $2::TEXT = '' OR
+    name     ILIKE '%' || $2 || '%' OR
+    hsn_code ILIKE '%' || $2 || '%' OR
+    sac_code ILIKE '%' || $2 || '%'
+)
+`
+
+type CountServicesParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Search         string    `json:"search"`
+}
+
+func (q *Queries) CountServices(ctx context.Context, arg CountServicesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countServices, arg.OrganisationID, arg.Search)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const getServices = `-- name: GetServices :many
+SELECT id, organisation_id, type, name, description, unit, hsn_code, sac_code,
+    tax_preference, intra_state_tax_rate, inter_state_tax_rate, selling_price,
+    account, is_active, created_at, updated_at
+FROM services
+WHERE organisation_id = $1
+AND (
+    $2::TEXT = '' OR
+    name     ILIKE '%' || $2 || '%' OR
+    hsn_code ILIKE '%' || $2 || '%' OR
+    sac_code ILIKE '%' || $2 || '%'
+)
+ORDER BY created_at DESC
+LIMIT $4 OFFSET $3
+`
+
+type GetServicesParams struct {
+	OrganisationID uuid.UUID `json:"organisation_id"`
+	Search         string    `json:"search"`
+	Offset         int32     `json:"offset"`
+	PerPage        int32     `json:"per_page"`
+}
+
+func (q *Queries) GetServices(ctx context.Context, arg GetServicesParams) ([]Service, error) {
+	rows, err := q.db.Query(ctx, getServices,
+		arg.OrganisationID,
+		arg.Search,
+		arg.Offset,
+		arg.PerPage,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Service
+	for rows.Next() {
+		var i Service
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganisationID,
+			&i.Type,
+			&i.Name,
+			&i.Description,
+			&i.Unit,
+			&i.HsnCode,
+			&i.SacCode,
+			&i.TaxPreference,
+			&i.IntraStateTaxRate,
+			&i.InterStateTaxRate,
+			&i.SellingPrice,
+			&i.Account,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getServiceByID = `-- name: GetServiceByID :one
+SELECT id, organisation_id, type, name, description, unit, hsn_code, sac_code,
+    tax_preference, intra_state_tax_rate, inter_state_tax_rate, selling_price,
+    account, is_active, created_at, updated_at
+FROM services
+WHERE id = $1 AND organisation_id = $2
+`
+
+type GetServiceByIDParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) GetServiceByID(ctx context.Context, arg GetServiceByIDParams) (Service, error) {
+	row := q.db.QueryRow(ctx, getServiceByID, arg.ID, arg.OrganisationID)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Type,
+		&i.Name,
+		&i.Description,
+		&i.Unit,
+		&i.HsnCode,
+		&i.SacCode,
+		&i.TaxPreference,
+		&i.IntraStateTaxRate,
+		&i.InterStateTaxRate,
+		&i.SellingPrice,
+		&i.Account,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const createService = `-- name: CreateService :one
 INSERT INTO services (
-    organisation_id, name, description, unit_price, tax_rate, unit, is_active, created_at, updated_at
+    organisation_id, type, name, description, unit, hsn_code, sac_code,
+    tax_preference, intra_state_tax_rate, inter_state_tax_rate, selling_price,
+    account, is_active, created_at, updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, NOW(), NOW()
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW()
 )
-RETURNING id, organisation_id, name, description, unit_price, tax_rate, unit, is_active, created_at, updated_at
+RETURNING id, organisation_id, type, name, description, unit, hsn_code, sac_code,
+    tax_preference, intra_state_tax_rate, inter_state_tax_rate, selling_price,
+    account, is_active, created_at, updated_at
 `
 
 type CreateServiceParams struct {
-	OrganisationID uuid.UUID      `json:"organisation_id"`
-	Name           string         `json:"name"`
-	Description    *string        `json:"description"`
-	UnitPrice      pgtype.Numeric `json:"unit_price"`
-	TaxRate        pgtype.Numeric `json:"tax_rate"`
-	Unit           string         `json:"unit"`
-	IsActive       bool           `json:"is_active"`
+	OrganisationID      uuid.UUID `json:"organisation_id"`
+	Type                string    `json:"type"`
+	Name                string    `json:"name"`
+	Description         *string   `json:"description"`
+	Unit                *string   `json:"unit"`
+	HsnCode             *string   `json:"hsn_code"`
+	SacCode             *string   `json:"sac_code"`
+	TaxPreference       string    `json:"tax_preference"`
+	IntraStateTaxRate   float64   `json:"intra_state_tax_rate"`
+	InterStateTaxRate   float64   `json:"inter_state_tax_rate"`
+	SellingPrice        float64   `json:"selling_price"`
+	Account             *string   `json:"account"`
+	IsActive            bool      `json:"is_active"`
 }
 
 func (q *Queries) CreateService(ctx context.Context, arg CreateServiceParams) (Service, error) {
 	row := q.db.QueryRow(ctx, createService,
 		arg.OrganisationID,
+		arg.Type,
 		arg.Name,
 		arg.Description,
-		arg.UnitPrice,
-		arg.TaxRate,
 		arg.Unit,
+		arg.HsnCode,
+		arg.SacCode,
+		arg.TaxPreference,
+		arg.IntraStateTaxRate,
+		arg.InterStateTaxRate,
+		arg.SellingPrice,
+		arg.Account,
 		arg.IsActive,
 	)
 	var i Service
 	err := row.Scan(
 		&i.ID,
 		&i.OrganisationID,
+		&i.Type,
 		&i.Name,
 		&i.Description,
-		&i.UnitPrice,
-		&i.TaxRate,
 		&i.Unit,
+		&i.HsnCode,
+		&i.SacCode,
+		&i.TaxPreference,
+		&i.IntraStateTaxRate,
+		&i.InterStateTaxRate,
+		&i.SellingPrice,
+		&i.Account,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateService = `-- name: UpdateService :one
+UPDATE services
+SET
+    type                 = COALESCE($3,  type),
+    name                 = COALESCE($4,  name),
+    description          = COALESCE($5,  description),
+    unit                 = COALESCE($6,  unit),
+    hsn_code             = COALESCE($7,  hsn_code),
+    sac_code             = COALESCE($8,  sac_code),
+    tax_preference       = COALESCE($9,  tax_preference),
+    intra_state_tax_rate = COALESCE($10, intra_state_tax_rate),
+    inter_state_tax_rate = COALESCE($11, inter_state_tax_rate),
+    selling_price        = COALESCE($12, selling_price),
+    account              = COALESCE($13, account),
+    is_active            = COALESCE($14, is_active),
+    updated_at           = NOW()
+WHERE id = $1 AND organisation_id = $2
+RETURNING id, organisation_id, type, name, description, unit, hsn_code, sac_code,
+    tax_preference, intra_state_tax_rate, inter_state_tax_rate, selling_price,
+    account, is_active, created_at, updated_at
+`
+
+type UpdateServiceParams struct {
+	ID                  uuid.UUID `json:"id"`
+	OrganisationID      uuid.UUID `json:"organisation_id"`
+	Type                *string   `json:"type"`
+	Name                *string   `json:"name"`
+	Description         *string   `json:"description"`
+	Unit                *string   `json:"unit"`
+	HsnCode             *string   `json:"hsn_code"`
+	SacCode             *string   `json:"sac_code"`
+	TaxPreference       *string   `json:"tax_preference"`
+	IntraStateTaxRate   *float64  `json:"intra_state_tax_rate"`
+	InterStateTaxRate   *float64  `json:"inter_state_tax_rate"`
+	SellingPrice        *float64  `json:"selling_price"`
+	Account             *string   `json:"account"`
+	IsActive            *bool     `json:"is_active"`
+}
+
+func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error) {
+	row := q.db.QueryRow(ctx, updateService,
+		arg.ID,
+		arg.OrganisationID,
+		arg.Type,
+		arg.Name,
+		arg.Description,
+		arg.Unit,
+		arg.HsnCode,
+		arg.SacCode,
+		arg.TaxPreference,
+		arg.IntraStateTaxRate,
+		arg.InterStateTaxRate,
+		arg.SellingPrice,
+		arg.Account,
+		arg.IsActive,
+	)
+	var i Service
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.Type,
+		&i.Name,
+		&i.Description,
+		&i.Unit,
+		&i.HsnCode,
+		&i.SacCode,
+		&i.TaxPreference,
+		&i.IntraStateTaxRate,
+		&i.InterStateTaxRate,
+		&i.SellingPrice,
+		&i.Account,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -70,123 +295,4 @@ type DeleteServiceParams struct {
 func (q *Queries) DeleteService(ctx context.Context, arg DeleteServiceParams) error {
 	_, err := q.db.Exec(ctx, deleteService, arg.ID, arg.OrganisationID)
 	return err
-}
-
-const getServiceByID = `-- name: GetServiceByID :one
-SELECT id, organisation_id, name, description, unit_price, tax_rate, unit, is_active, created_at, updated_at
-FROM services
-WHERE id = $1 AND organisation_id = $2
-`
-
-type GetServiceByIDParams struct {
-	ID             uuid.UUID `json:"id"`
-	OrganisationID uuid.UUID `json:"organisation_id"`
-}
-
-func (q *Queries) GetServiceByID(ctx context.Context, arg GetServiceByIDParams) (Service, error) {
-	row := q.db.QueryRow(ctx, getServiceByID, arg.ID, arg.OrganisationID)
-	var i Service
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.Name,
-		&i.Description,
-		&i.UnitPrice,
-		&i.TaxRate,
-		&i.Unit,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getServices = `-- name: GetServices :many
-SELECT id, organisation_id, name, description, unit_price, tax_rate, unit, is_active, created_at, updated_at
-FROM services
-WHERE organisation_id = $1
-ORDER BY created_at DESC
-`
-
-func (q *Queries) GetServices(ctx context.Context, organisationID uuid.UUID) ([]Service, error) {
-	rows, err := q.db.Query(ctx, getServices, organisationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Service
-	for rows.Next() {
-		var i Service
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganisationID,
-			&i.Name,
-			&i.Description,
-			&i.UnitPrice,
-			&i.TaxRate,
-			&i.Unit,
-			&i.IsActive,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateService = `-- name: UpdateService :one
-UPDATE services
-SET
-    name = COALESCE($3, name),
-    description = COALESCE($4, description),
-    unit_price = COALESCE($5, unit_price),
-    tax_rate = COALESCE($6, tax_rate),
-    unit = COALESCE($7, unit),
-    is_active = COALESCE($8, is_active),
-    updated_at = NOW()
-WHERE id = $1 AND organisation_id = $2
-RETURNING id, organisation_id, name, description, unit_price, tax_rate, unit, is_active, created_at, updated_at
-`
-
-type UpdateServiceParams struct {
-	ID             uuid.UUID      `json:"id"`
-	OrganisationID uuid.UUID      `json:"organisation_id"`
-	Name           *string        `json:"name"`
-	Description    *string        `json:"description"`
-	UnitPrice      pgtype.Numeric `json:"unit_price"`
-	TaxRate        pgtype.Numeric `json:"tax_rate"`
-	Unit           *string        `json:"unit"`
-	IsActive       *bool          `json:"is_active"`
-}
-
-func (q *Queries) UpdateService(ctx context.Context, arg UpdateServiceParams) (Service, error) {
-	row := q.db.QueryRow(ctx, updateService,
-		arg.ID,
-		arg.OrganisationID,
-		arg.Name,
-		arg.Description,
-		arg.UnitPrice,
-		arg.TaxRate,
-		arg.Unit,
-		arg.IsActive,
-	)
-	var i Service
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.Name,
-		&i.Description,
-		&i.UnitPrice,
-		&i.TaxRate,
-		&i.Unit,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }

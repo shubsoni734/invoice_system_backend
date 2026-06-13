@@ -16,10 +16,10 @@ SELECT COUNT(*)
 FROM customers
 WHERE organisation_id = $1
 AND (
-    $2::TEXT = '' OR 
-    name ILIKE '%' || $2 || '%' OR 
-    email ILIKE '%' || $2 || '%' OR 
-    phone ILIKE '%' || $2 || '%'
+    $2::TEXT = '' OR
+    name ILIKE '%' || $2 || '%' OR
+    email ILIKE '%' || $2 || '%' OR
+    tax_number ILIKE '%' || $2 || '%'
 )
 `
 
@@ -35,104 +35,19 @@ func (q *Queries) CountCustomers(ctx context.Context, arg CountCustomersParams) 
 	return count, err
 }
 
-const createCustomer = `-- name: CreateCustomer :one
-INSERT INTO customers (
-    organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, NOW(), NOW()
-)
-RETURNING id, organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
-`
-
-type CreateCustomerParams struct {
-	OrganisationID uuid.UUID `json:"organisation_id"`
-	Name           string    `json:"name"`
-	Email          *string   `json:"email"`
-	Phone          *string   `json:"phone"`
-	Address        *string   `json:"address"`
-	TaxNumber      *string   `json:"tax_number"`
-	IsActive       bool      `json:"is_active"`
-}
-
-func (q *Queries) CreateCustomer(ctx context.Context, arg CreateCustomerParams) (Customer, error) {
-	row := q.db.QueryRow(ctx, createCustomer,
-		arg.OrganisationID,
-		arg.Name,
-		arg.Email,
-		arg.Phone,
-		arg.Address,
-		arg.TaxNumber,
-		arg.IsActive,
-	)
-	var i Customer
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.Name,
-		&i.Email,
-		&i.Phone,
-		&i.Address,
-		&i.TaxNumber,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const deleteCustomer = `-- name: DeleteCustomer :exec
-DELETE FROM customers
-WHERE id = $1 AND organisation_id = $2
-`
-
-type DeleteCustomerParams struct {
-	ID             uuid.UUID `json:"id"`
-	OrganisationID uuid.UUID `json:"organisation_id"`
-}
-
-func (q *Queries) DeleteCustomer(ctx context.Context, arg DeleteCustomerParams) error {
-	_, err := q.db.Exec(ctx, deleteCustomer, arg.ID, arg.OrganisationID)
-	return err
-}
-
-const getCustomerByID = `-- name: GetCustomerByID :one
-SELECT id, organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
-FROM customers
-WHERE id = $1 AND organisation_id = $2
-`
-
-type GetCustomerByIDParams struct {
-	ID             uuid.UUID `json:"id"`
-	OrganisationID uuid.UUID `json:"organisation_id"`
-}
-
-func (q *Queries) GetCustomerByID(ctx context.Context, arg GetCustomerByIDParams) (Customer, error) {
-	row := q.db.QueryRow(ctx, getCustomerByID, arg.ID, arg.OrganisationID)
-	var i Customer
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.Name,
-		&i.Email,
-		&i.Phone,
-		&i.Address,
-		&i.TaxNumber,
-		&i.IsActive,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getCustomers = `-- name: GetCustomers :many
-SELECT id, organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
+SELECT id, organisation_id, customer_type, name, company_name, email, phone,
+    gst_treatment, tax_number, business_legal_name, business_trade_name,
+    place_of_supply, pan, tax_preference, exemption_reason, gst_tds,
+    payment_term, document, address, contact_person_name, contact_person_email,
+    contact_person_mobile, remark, is_active, created_at, updated_at
 FROM customers
 WHERE organisation_id = $1
 AND (
-    $2::TEXT = '' OR 
-    name ILIKE '%' || $2 || '%' OR 
-    email ILIKE '%' || $2 || '%' OR 
-    phone ILIKE '%' || $2 || '%'
+    $2::TEXT = '' OR
+    name ILIKE '%' || $2 || '%' OR
+    email ILIKE '%' || $2 || '%' OR
+    tax_number ILIKE '%' || $2 || '%'
 )
 ORDER BY created_at DESC
 LIMIT $4 OFFSET $3
@@ -162,11 +77,27 @@ func (q *Queries) GetCustomers(ctx context.Context, arg GetCustomersParams) ([]C
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganisationID,
+			&i.CustomerType,
 			&i.Name,
+			&i.CompanyName,
 			&i.Email,
 			&i.Phone,
-			&i.Address,
+			&i.GstTreatment,
 			&i.TaxNumber,
+			&i.BusinessLegalName,
+			&i.BusinessTradeName,
+			&i.PlaceOfSupply,
+			&i.Pan,
+			&i.TaxPreference,
+			&i.ExemptionReason,
+			&i.GstTds,
+			&i.PaymentTerm,
+			&i.Document,
+			&i.Address,
+			&i.ContactPersonName,
+			&i.ContactPersonEmail,
+			&i.ContactPersonMobile,
+			&i.Remark,
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -181,54 +112,288 @@ func (q *Queries) GetCustomers(ctx context.Context, arg GetCustomersParams) ([]C
 	return items, nil
 }
 
-const updateCustomer = `-- name: UpdateCustomer :one
-UPDATE customers
-SET
-    name = COALESCE($3, name),
-    email = COALESCE($4, email),
-    phone = COALESCE($5, phone),
-    address = COALESCE($6, address),
-    tax_number = COALESCE($7, tax_number),
-    is_active = COALESCE($8, is_active),
-    updated_at = NOW()
+const getCustomerByID = `-- name: GetCustomerByID :one
+SELECT id, organisation_id, customer_type, name, company_name, email, phone,
+    gst_treatment, tax_number, business_legal_name, business_trade_name,
+    place_of_supply, pan, tax_preference, exemption_reason, gst_tds,
+    payment_term, document, address, contact_person_name, contact_person_email,
+    contact_person_mobile, remark, is_active, created_at, updated_at
+FROM customers
 WHERE id = $1 AND organisation_id = $2
-RETURNING id, organisation_id, name, email, phone, address, tax_number, is_active, created_at, updated_at
 `
 
-type UpdateCustomerParams struct {
+type GetCustomerByIDParams struct {
 	ID             uuid.UUID `json:"id"`
 	OrganisationID uuid.UUID `json:"organisation_id"`
-	Name           *string   `json:"name"`
-	Email          *string   `json:"email"`
-	Phone          *string   `json:"phone"`
-	Address        *string   `json:"address"`
-	TaxNumber      *string   `json:"tax_number"`
-	IsActive       *bool     `json:"is_active"`
 }
 
-func (q *Queries) UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (Customer, error) {
-	row := q.db.QueryRow(ctx, updateCustomer,
-		arg.ID,
+func (q *Queries) GetCustomerByID(ctx context.Context, arg GetCustomerByIDParams) (Customer, error) {
+	row := q.db.QueryRow(ctx, getCustomerByID, arg.ID, arg.OrganisationID)
+	var i Customer
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.CustomerType,
+		&i.Name,
+		&i.CompanyName,
+		&i.Email,
+		&i.Phone,
+		&i.GstTreatment,
+		&i.TaxNumber,
+		&i.BusinessLegalName,
+		&i.BusinessTradeName,
+		&i.PlaceOfSupply,
+		&i.Pan,
+		&i.TaxPreference,
+		&i.ExemptionReason,
+		&i.GstTds,
+		&i.PaymentTerm,
+		&i.Document,
+		&i.Address,
+		&i.ContactPersonName,
+		&i.ContactPersonEmail,
+		&i.ContactPersonMobile,
+		&i.Remark,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createCustomer = `-- name: CreateCustomer :one
+INSERT INTO customers (
+    organisation_id, customer_type, name, company_name, email, phone,
+    gst_treatment, tax_number, business_legal_name, business_trade_name,
+    place_of_supply, pan, tax_preference, exemption_reason, gst_tds,
+    payment_term, document, address, contact_person_name, contact_person_email,
+    contact_person_mobile, remark, is_active
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20, $21, $22, $23
+)
+RETURNING id, organisation_id, customer_type, name, company_name, email, phone,
+    gst_treatment, tax_number, business_legal_name, business_trade_name,
+    place_of_supply, pan, tax_preference, exemption_reason, gst_tds,
+    payment_term, document, address, contact_person_name, contact_person_email,
+    contact_person_mobile, remark, is_active, created_at, updated_at
+`
+
+type CreateCustomerParams struct {
+	OrganisationID      uuid.UUID `json:"organisation_id"`
+	CustomerType        string    `json:"customer_type"`
+	Name                string    `json:"name"`
+	CompanyName         *string   `json:"company_name"`
+	Email               *string   `json:"email"`
+	Phone               *string   `json:"phone"`
+	GstTreatment        *string   `json:"gst_treatment"`
+	TaxNumber           *string   `json:"tax_number"`
+	BusinessLegalName   *string   `json:"business_legal_name"`
+	BusinessTradeName   *string   `json:"business_trade_name"`
+	PlaceOfSupply       *string   `json:"place_of_supply"`
+	Pan                 *string   `json:"pan"`
+	TaxPreference       string    `json:"tax_preference"`
+	ExemptionReason     *string   `json:"exemption_reason"`
+	GstTds              bool      `json:"gst_tds"`
+	PaymentTerm         *string   `json:"payment_term"`
+	Document            *string   `json:"document"`
+	Address             *string   `json:"address"`
+	ContactPersonName   *string   `json:"contact_person_name"`
+	ContactPersonEmail  *string   `json:"contact_person_email"`
+	ContactPersonMobile *string   `json:"contact_person_mobile"`
+	Remark              *string   `json:"remark"`
+	IsActive            bool      `json:"is_active"`
+}
+
+func (q *Queries) CreateCustomer(ctx context.Context, arg CreateCustomerParams) (Customer, error) {
+	row := q.db.QueryRow(ctx, createCustomer,
 		arg.OrganisationID,
+		arg.CustomerType,
 		arg.Name,
+		arg.CompanyName,
 		arg.Email,
 		arg.Phone,
-		arg.Address,
+		arg.GstTreatment,
 		arg.TaxNumber,
+		arg.BusinessLegalName,
+		arg.BusinessTradeName,
+		arg.PlaceOfSupply,
+		arg.Pan,
+		arg.TaxPreference,
+		arg.ExemptionReason,
+		arg.GstTds,
+		arg.PaymentTerm,
+		arg.Document,
+		arg.Address,
+		arg.ContactPersonName,
+		arg.ContactPersonEmail,
+		arg.ContactPersonMobile,
+		arg.Remark,
 		arg.IsActive,
 	)
 	var i Customer
 	err := row.Scan(
 		&i.ID,
 		&i.OrganisationID,
+		&i.CustomerType,
 		&i.Name,
+		&i.CompanyName,
 		&i.Email,
 		&i.Phone,
-		&i.Address,
+		&i.GstTreatment,
 		&i.TaxNumber,
+		&i.BusinessLegalName,
+		&i.BusinessTradeName,
+		&i.PlaceOfSupply,
+		&i.Pan,
+		&i.TaxPreference,
+		&i.ExemptionReason,
+		&i.GstTds,
+		&i.PaymentTerm,
+		&i.Document,
+		&i.Address,
+		&i.ContactPersonName,
+		&i.ContactPersonEmail,
+		&i.ContactPersonMobile,
+		&i.Remark,
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const updateCustomer = `-- name: UpdateCustomer :one
+UPDATE customers
+SET
+    customer_type         = COALESCE($3,  customer_type),
+    name                  = COALESCE($4,  name),
+    company_name          = COALESCE($5,  company_name),
+    email                 = COALESCE($6,  email),
+    phone                 = COALESCE($7,  phone),
+    gst_treatment         = COALESCE($8,  gst_treatment),
+    tax_number            = COALESCE($9,  tax_number),
+    business_legal_name   = COALESCE($10, business_legal_name),
+    business_trade_name   = COALESCE($11, business_trade_name),
+    place_of_supply       = COALESCE($12, place_of_supply),
+    pan                   = COALESCE($13, pan),
+    tax_preference        = COALESCE($14, tax_preference),
+    exemption_reason      = COALESCE($15, exemption_reason),
+    gst_tds               = COALESCE($16, gst_tds),
+    payment_term          = COALESCE($17, payment_term),
+    document              = COALESCE($18, document),
+    address               = COALESCE($19, address),
+    contact_person_name   = COALESCE($20, contact_person_name),
+    contact_person_email  = COALESCE($21, contact_person_email),
+    contact_person_mobile = COALESCE($22, contact_person_mobile),
+    remark                = COALESCE($23, remark),
+    is_active             = COALESCE($24, is_active),
+    updated_at            = NOW()
+WHERE id = $1 AND organisation_id = $2
+RETURNING id, organisation_id, customer_type, name, company_name, email, phone,
+    gst_treatment, tax_number, business_legal_name, business_trade_name,
+    place_of_supply, pan, tax_preference, exemption_reason, gst_tds,
+    payment_term, document, address, contact_person_name, contact_person_email,
+    contact_person_mobile, remark, is_active, created_at, updated_at
+`
+
+type UpdateCustomerParams struct {
+	ID                  uuid.UUID `json:"id"`
+	OrganisationID      uuid.UUID `json:"organisation_id"`
+	CustomerType        *string   `json:"customer_type"`
+	Name                *string   `json:"name"`
+	CompanyName         *string   `json:"company_name"`
+	Email               *string   `json:"email"`
+	Phone               *string   `json:"phone"`
+	GstTreatment        *string   `json:"gst_treatment"`
+	TaxNumber           *string   `json:"tax_number"`
+	BusinessLegalName   *string   `json:"business_legal_name"`
+	BusinessTradeName   *string   `json:"business_trade_name"`
+	PlaceOfSupply       *string   `json:"place_of_supply"`
+	Pan                 *string   `json:"pan"`
+	TaxPreference       *string   `json:"tax_preference"`
+	ExemptionReason     *string   `json:"exemption_reason"`
+	GstTds              *bool     `json:"gst_tds"`
+	PaymentTerm         *string   `json:"payment_term"`
+	Document            *string   `json:"document"`
+	Address             *string   `json:"address"`
+	ContactPersonName   *string   `json:"contact_person_name"`
+	ContactPersonEmail  *string   `json:"contact_person_email"`
+	ContactPersonMobile *string   `json:"contact_person_mobile"`
+	Remark              *string   `json:"remark"`
+	IsActive            *bool     `json:"is_active"`
+}
+
+func (q *Queries) UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (Customer, error) {
+	row := q.db.QueryRow(ctx, updateCustomer,
+		arg.ID,
+		arg.OrganisationID,
+		arg.CustomerType,
+		arg.Name,
+		arg.CompanyName,
+		arg.Email,
+		arg.Phone,
+		arg.GstTreatment,
+		arg.TaxNumber,
+		arg.BusinessLegalName,
+		arg.BusinessTradeName,
+		arg.PlaceOfSupply,
+		arg.Pan,
+		arg.TaxPreference,
+		arg.ExemptionReason,
+		arg.GstTds,
+		arg.PaymentTerm,
+		arg.Document,
+		arg.Address,
+		arg.ContactPersonName,
+		arg.ContactPersonEmail,
+		arg.ContactPersonMobile,
+		arg.Remark,
+		arg.IsActive,
+	)
+	var i Customer
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.CustomerType,
+		&i.Name,
+		&i.CompanyName,
+		&i.Email,
+		&i.Phone,
+		&i.GstTreatment,
+		&i.TaxNumber,
+		&i.BusinessLegalName,
+		&i.BusinessTradeName,
+		&i.PlaceOfSupply,
+		&i.Pan,
+		&i.TaxPreference,
+		&i.ExemptionReason,
+		&i.GstTds,
+		&i.PaymentTerm,
+		&i.Document,
+		&i.Address,
+		&i.ContactPersonName,
+		&i.ContactPersonEmail,
+		&i.ContactPersonMobile,
+		&i.Remark,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const deleteCustomer = `-- name: DeleteCustomer :exec
+DELETE FROM customers
+WHERE id = $1 AND organisation_id = $2
+`
+
+type DeleteCustomerParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) DeleteCustomer(ctx context.Context, arg DeleteCustomerParams) error {
+	_, err := q.db.Exec(ctx, deleteCustomer, arg.ID, arg.OrganisationID)
+	return err
 }

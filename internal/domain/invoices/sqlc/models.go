@@ -55,15 +55,20 @@ type Invoice struct {
 	ID             uuid.UUID          `json:"id"`
 	OrganisationID uuid.UUID          `json:"organisation_id"`
 	CustomerID     uuid.UUID          `json:"customer_id"`
-	SessionID      uuid.UUID          `json:"session_id"`
+	SessionID      pgtype.UUID        `json:"session_id"`
 	InvoiceNumber  string             `json:"invoice_number"`
 	Status         string             `json:"status"`
 	IssuedDate     pgtype.Date        `json:"issued_date"`
 	DueDate        pgtype.Date        `json:"due_date"`
-	Subtotal       pgtype.Numeric     `json:"subtotal"`
-	TaxAmount      pgtype.Numeric     `json:"tax_amount"`
-	DiscountAmount pgtype.Numeric     `json:"discount_amount"`
-	Total          pgtype.Numeric     `json:"total"`
+	Subtotal       float64            `json:"subtotal"`
+	TaxAmount      float64            `json:"tax_amount"`
+	CgstAmount     float64            `json:"cgst_amount"`
+	SgstAmount     float64            `json:"sgst_amount"`
+	IgstAmount     float64            `json:"igst_amount"`
+	DiscountAmount float64            `json:"discount_amount"`
+	Total          float64            `json:"total"`
+	GrandTotal     float64            `json:"grand_total"`
+	IsSameState    bool               `json:"is_same_state"`
 	Currency       string             `json:"currency"`
 	Notes          *string            `json:"notes"`
 	Terms          *string            `json:"terms"`
@@ -75,16 +80,64 @@ type Invoice struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+// InvoiceRow is returned by GetInvoices/GetInvoiceDetail (includes customer JOIN).
+type InvoiceRow struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	CustomerID     uuid.UUID          `json:"customer_id"`
+	SessionID      pgtype.UUID        `json:"session_id"`
+	InvoiceNumber  string             `json:"invoice_number"`
+	Status         string             `json:"status"`
+	IssuedDate     pgtype.Date        `json:"issued_date"`
+	DueDate        pgtype.Date        `json:"due_date"`
+	Subtotal       float64            `json:"subtotal"`
+	TaxAmount      float64            `json:"tax_amount"`
+	CgstAmount     float64            `json:"cgst_amount"`
+	SgstAmount     float64            `json:"sgst_amount"`
+	IgstAmount     float64            `json:"igst_amount"`
+	DiscountAmount float64            `json:"discount_amount"`
+	Total          float64            `json:"total"`
+	GrandTotal     float64            `json:"grand_total"`
+	IsSameState    bool               `json:"is_same_state"`
+	Currency       string             `json:"currency"`
+	Notes          *string            `json:"notes"`
+	Terms          *string            `json:"terms"`
+	TemplateID     pgtype.UUID        `json:"template_id"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	SentAt         pgtype.Timestamptz `json:"sent_at"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	CustomerName   *string            `json:"customer_name"`
+	CustomerGstin  *string            `json:"customer_gstin"`
+}
+
+// InvoiceStatusRow is used for cancel/delete validation.
+type InvoiceStatusRow struct {
+	ID     uuid.UUID          `json:"id"`
+	Status string             `json:"status"`
+	SentAt pgtype.Timestamptz `json:"sent_at"`
+	PaidAt pgtype.Timestamptz `json:"paid_at"`
+}
+
+// IncrementSessionSequenceRow is returned when auto-generating an invoice number.
+type IncrementSessionSequenceRow struct {
+	CurrentSequence int32  `json:"current_sequence"`
+	Prefix          string `json:"prefix"`
+	Year            int32  `json:"year"`
+}
+
 type InvoiceItem struct {
 	ID          uuid.UUID          `json:"id"`
 	InvoiceID   uuid.UUID          `json:"invoice_id"`
 	ServiceID   pgtype.UUID        `json:"service_id"`
 	Description string             `json:"description"`
-	Quantity    pgtype.Numeric     `json:"quantity"`
-	UnitPrice   pgtype.Numeric     `json:"unit_price"`
-	TaxRate     pgtype.Numeric     `json:"tax_rate"`
-	TaxAmount   pgtype.Numeric     `json:"tax_amount"`
-	LineTotal   pgtype.Numeric     `json:"line_total"`
+	HsnSacCode  *string            `json:"hsn_sac_code"`
+	Quantity    float64            `json:"quantity"`
+	UnitPrice   float64            `json:"unit_price"`
+	TaxRate     float64            `json:"tax_rate"`
+	TaxAmount   float64            `json:"tax_amount"`
+	LineTotal   float64            `json:"line_total"`
 	SortOrder   int32              `json:"sort_order"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
@@ -138,8 +191,8 @@ type Payment struct {
 	ID             uuid.UUID          `json:"id"`
 	OrganisationID uuid.UUID          `json:"organisation_id"`
 	InvoiceID      uuid.UUID          `json:"invoice_id"`
-	Amount         pgtype.Numeric     `json:"amount"`
-	Method         string             `json:"method"`
+	Amount         float64            `json:"amount"`
+	Method         *string            `json:"method"`
 	Reference      *string            `json:"reference"`
 	Notes          *string            `json:"notes"`
 	PaymentDate    pgtype.Date        `json:"payment_date"`
@@ -186,16 +239,22 @@ type Role struct {
 }
 
 type Service struct {
-	ID             uuid.UUID          `json:"id"`
-	OrganisationID uuid.UUID          `json:"organisation_id"`
-	Name           string             `json:"name"`
-	Description    *string            `json:"description"`
-	UnitPrice      pgtype.Numeric     `json:"unit_price"`
-	TaxRate        pgtype.Numeric     `json:"tax_rate"`
-	Unit           string             `json:"unit"`
-	IsActive       bool               `json:"is_active"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                uuid.UUID          `json:"id"`
+	OrganisationID    uuid.UUID          `json:"organisation_id"`
+	Type              string             `json:"type"`
+	Name              string             `json:"name"`
+	Description       *string            `json:"description"`
+	Unit              *string            `json:"unit"`
+	HsnCode           *string            `json:"hsn_code"`
+	SacCode           *string            `json:"sac_code"`
+	TaxPreference     string             `json:"tax_preference"`
+	IntraStateTaxRate float64            `json:"intra_state_tax_rate"`
+	InterStateTaxRate float64            `json:"inter_state_tax_rate"`
+	SellingPrice      float64            `json:"selling_price"`
+	Account           *string            `json:"account"`
+	IsActive          bool               `json:"is_active"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Setting struct {

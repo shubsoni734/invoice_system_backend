@@ -21,6 +21,7 @@ func RegisterRoutes(
 
 	// Public routes
 	public.POST("/login", handler.Login)
+	public.POST("/refresh", handler.RefreshToken)
 	public.POST("/forgot-password", handler.ForgotPassword)
 	public.POST("/reset-password", handler.ResetPassword)
 

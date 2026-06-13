@@ -74,7 +74,7 @@ func RegisterRoutes(
 		services.RegisterRoutes(protected, db)
 		invoicesessions.RegisterRoutes(protected, db)
 		templates.RegisterRoutes(protected, db)
-		invoices.RegisterRoutes(protected, db)
+		invoices.RegisterRoutes(protected, db, emailClient)
 		payments.RegisterRoutes(protected, db)
 		reports.RegisterRoutes(protected, db)
 		invoicepdf.RegisterRoutes(protected, db)

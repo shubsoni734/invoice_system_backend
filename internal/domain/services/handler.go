@@ -2,16 +2,20 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	servicesdb "github.com/your-org/invoice-backend/internal/domain/services/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
+	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
+
+var validTaxRates = map[float64]bool{
+	0: true, 5: true, 12: true, 18: true, 28: true,
+}
 
 type Handler struct {
 	q *servicesdb.Queries
@@ -22,21 +26,33 @@ func NewHandler(q *servicesdb.Queries) *Handler {
 }
 
 type CreateServiceRequest struct {
-	Name        string  `json:"name" binding:"required"`
-	Description *string `json:"description"`
-	UnitPrice   float64 `json:"unit_price" binding:"required"`
-	TaxRate     float64 `json:"tax_rate"`
-	Unit        string  `json:"unit"`
-	IsActive    *bool   `json:"is_active"`
+	Type                string   `json:"type"`
+	Name                string   `json:"name"`
+	Description         *string  `json:"description"`
+	Unit                *string  `json:"unit"`
+	HSNCode             *string  `json:"hsn_code"`
+	SACCode             *string  `json:"sac_code"`
+	TaxPreference       string   `json:"tax_preference"`
+	IntraStateTaxRate   *float64 `json:"intra_state_tax_rate"`
+	InterStateTaxRate   *float64 `json:"inter_state_tax_rate"`
+	SellingPrice        float64  `json:"selling_price"`
+	Account             *string  `json:"account"`
+	IsActive            *bool    `json:"is_active"`
 }
 
 type UpdateServiceRequest struct {
-	Name        *string  `json:"name"`
-	Description *string  `json:"description"`
-	UnitPrice   *float64 `json:"unit_price"`
-	TaxRate     *float64 `json:"tax_rate"`
-	Unit        *string  `json:"unit"`
-	IsActive    *bool    `json:"is_active"`
+	Type                *string  `json:"type"`
+	Name                *string  `json:"name"`
+	Description         *string  `json:"description"`
+	Unit                *string  `json:"unit"`
+	HSNCode             *string  `json:"hsn_code"`
+	SACCode             *string  `json:"sac_code"`
+	TaxPreference       *string  `json:"tax_preference"`
+	IntraStateTaxRate   *float64 `json:"intra_state_tax_rate"`
+	InterStateTaxRate   *float64 `json:"inter_state_tax_rate"`
+	SellingPrice        *float64 `json:"selling_price"`
+	Account             *string  `json:"account"`
+	IsActive            *bool    `json:"is_active"`
 }
 
 func getOrgID(c *gin.Context) (uuid.UUID, error) {
@@ -44,18 +60,68 @@ func getOrgID(c *gin.Context) (uuid.UUID, error) {
 	return uuid.Parse(orgIDRaw)
 }
 
-func floatToNumeric(f float64) pgtype.Numeric {
-	var num pgtype.Numeric
-	// Use string representation for maximum compatibility with pgx/v5 Scan
-	strValue := fmt.Sprintf("%v", f)
-	err := num.Scan(strValue)
-	if err != nil {
-		fmt.Printf("floatToNumeric conversion error for %v: %v\n", f, err)
-		num.Valid = false
-	} else {
-		num.Valid = true
+func validateCreateService(req *CreateServiceRequest) string {
+	if strings.TrimSpace(req.Name) == "" {
+		return "name is required"
 	}
-	return num
+
+	svcType := strings.TrimSpace(req.Type)
+	if svcType == "" {
+		svcType = "service"
+	}
+	if svcType != "goods" && svcType != "service" {
+		return "type must be 'goods' or 'service'"
+	}
+
+	tp := strings.TrimSpace(req.TaxPreference)
+	if tp == "" {
+		tp = "taxable"
+	}
+	if tp != "taxable" && tp != "tax_exempt" {
+		return "tax_preference must be 'taxable' or 'tax_exempt'"
+	}
+
+	if req.SellingPrice < 0 {
+		return "selling_price must be >= 0"
+	}
+
+	if req.IntraStateTaxRate != nil && !validTaxRates[*req.IntraStateTaxRate] {
+		return "intra_state_tax_rate must be one of: 0, 5, 12, 18, 28"
+	}
+
+	if req.InterStateTaxRate != nil && !validTaxRates[*req.InterStateTaxRate] {
+		return "inter_state_tax_rate must be one of: 0, 5, 12, 18, 28"
+	}
+
+	return ""
+}
+
+func validateUpdateService(req *UpdateServiceRequest) string {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return "name cannot be empty"
+	}
+
+	if req.Type != nil && *req.Type != "goods" && *req.Type != "service" {
+		return "type must be 'goods' or 'service'"
+	}
+
+	if req.TaxPreference != nil && *req.TaxPreference != "taxable" && *req.TaxPreference != "tax_exempt" {
+		return "tax_preference must be 'taxable' or 'tax_exempt'"
+	}
+
+	if req.SellingPrice != nil && *req.SellingPrice < 0 {
+		return "selling_price must be >= 0"
+	}
+
+	if req.IntraStateTaxRate != nil && !validTaxRates[*req.IntraStateTaxRate] {
+		return "intra_state_tax_rate must be one of: 0, 5, 12, 18, 28"
+	}
+
+	if req.InterStateTaxRate != nil && !validTaxRates[*req.InterStateTaxRate] {
+		return "inter_state_tax_rate must be one of: 0, 5, 12, 18, 28"
+	}
+
+	return ""
 }
 
 // GetServices GET /api/v1/services
@@ -66,7 +132,24 @@ func (h *Handler) GetServices(c *gin.Context) {
 		return
 	}
 
-	res, err := h.q.GetServices(context.Background(), orgID)
+	search := c.Query("search")
+	p := utils.GetPaginationParams(c)
+
+	total, err := h.q.CountServices(context.Background(), servicesdb.CountServicesParams{
+		OrganisationID: orgID,
+		Search:         search,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to count services")
+		return
+	}
+
+	res, err := h.q.GetServices(context.Background(), servicesdb.GetServicesParams{
+		OrganisationID: orgID,
+		Search:         search,
+		Offset:         int32(p.Offset),
+		PerPage:        int32(p.PerPage),
+	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch services")
 		return
@@ -76,7 +159,12 @@ func (h *Handler) GetServices(c *gin.Context) {
 		res = []servicesdb.Service{}
 	}
 
-	response.Success(c, http.StatusOK, "Services retrieved successfully", res)
+	response.SuccessWithMeta(c, http.StatusOK, "Services retrieved successfully", res, &response.Meta{
+		Page:       p.Page,
+		PerPage:    p.PerPage,
+		Total:      total,
+		TotalPages: utils.CalculateTotalPages(total, p.PerPage),
+	})
 }
 
 // GetServiceByID GET /api/v1/services/:id
@@ -119,28 +207,50 @@ func (h *Handler) CreateService(c *gin.Context) {
 		return
 	}
 
+	// Apply defaults before validation
+	if strings.TrimSpace(req.Type) == "" {
+		req.Type = "service"
+	}
+	if strings.TrimSpace(req.TaxPreference) == "" {
+		req.TaxPreference = "taxable"
+	}
+
+	if errMsg := validateCreateService(&req); errMsg != "" {
+		response.Error(c, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	// Resolve defaults for DB
+	intraRate := 18.0
+	if req.IntraStateTaxRate != nil {
+		intraRate = *req.IntraStateTaxRate
+	}
+	interRate := 18.0
+	if req.InterStateTaxRate != nil {
+		interRate = *req.InterStateTaxRate
+	}
 	isActive := true
 	if req.IsActive != nil {
 		isActive = *req.IsActive
 	}
 
-	unit := "unit"
-	if req.Unit != "" {
-		unit = req.Unit
-	}
-
 	res, err := h.q.CreateService(context.Background(), servicesdb.CreateServiceParams{
-		OrganisationID: orgID,
-		Name:           req.Name,
-		Description:    req.Description,
-		UnitPrice:      floatToNumeric(req.UnitPrice),
-		TaxRate:        floatToNumeric(req.TaxRate),
-		Unit:           unit,
-		IsActive:       isActive,
+		OrganisationID:    orgID,
+		Type:              req.Type,
+		Name:              strings.TrimSpace(req.Name),
+		Description:       req.Description,
+		Unit:              req.Unit,
+		HsnCode:           req.HSNCode,
+		SacCode:           req.SACCode,
+		TaxPreference:     req.TaxPreference,
+		IntraStateTaxRate: intraRate,
+		InterStateTaxRate: interRate,
+		SellingPrice:      req.SellingPrice,
+		Account:           req.Account,
+		IsActive:          isActive,
 	})
 	if err != nil {
-		fmt.Printf("CreateService Error: %v\n", err)
-		response.Error(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create service: %v", err))
+		response.Error(c, http.StatusInternalServerError, "Failed to create service")
 		return
 	}
 
@@ -167,25 +277,26 @@ func (h *Handler) UpdateService(c *gin.Context) {
 		return
 	}
 
-	var unitPrice pgtype.Numeric
-	if req.UnitPrice != nil {
-		unitPrice = floatToNumeric(*req.UnitPrice)
-	}
-
-	var taxRate pgtype.Numeric
-	if req.TaxRate != nil {
-		taxRate = floatToNumeric(*req.TaxRate)
+	if errMsg := validateUpdateService(&req); errMsg != "" {
+		response.Error(c, http.StatusBadRequest, errMsg)
+		return
 	}
 
 	res, err := h.q.UpdateService(context.Background(), servicesdb.UpdateServiceParams{
-		ID:             id,
-		OrganisationID: orgID,
-		Name:           req.Name,
-		Description:    req.Description,
-		UnitPrice:      unitPrice,
-		TaxRate:        taxRate,
-		Unit:           req.Unit,
-		IsActive:       req.IsActive,
+		ID:                id,
+		OrganisationID:    orgID,
+		Type:              req.Type,
+		Name:              req.Name,
+		Description:       req.Description,
+		Unit:              req.Unit,
+		HsnCode:           req.HSNCode,
+		SacCode:           req.SACCode,
+		TaxPreference:     req.TaxPreference,
+		IntraStateTaxRate: req.IntraStateTaxRate,
+		InterStateTaxRate: req.InterStateTaxRate,
+		SellingPrice:      req.SellingPrice,
+		Account:           req.Account,
+		IsActive:          req.IsActive,
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to update service")
@@ -209,11 +320,10 @@ func (h *Handler) DeleteService(c *gin.Context) {
 		return
 	}
 
-	err = h.q.DeleteService(context.Background(), servicesdb.DeleteServiceParams{
+	if err := h.q.DeleteService(context.Background(), servicesdb.DeleteServiceParams{
 		ID:             id,
 		OrganisationID: orgID,
-	})
-	if err != nil {
+	}); err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to delete service")
 		return
 	}

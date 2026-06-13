@@ -12,174 +12,126 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const cancelInvoice = `-- name: CancelInvoice :one
-UPDATE invoices
-SET status = 'cancelled', updated_at = NOW()
-WHERE id = $1 AND organisation_id = $2
-RETURNING id, organisation_id, customer_id, session_id, invoice_number, status, issued_date, due_date, subtotal, tax_amount, discount_amount, total, currency, notes, terms, template_id, created_by, sent_at, paid_at, created_at, updated_at
+const countInvoices = `-- name: CountInvoices :one
+SELECT COUNT(*)
+FROM invoices
+WHERE organisation_id = $1
+  AND ($2::TEXT = '' OR status = $2)
+  AND ($3::UUID IS NULL OR customer_id = $3::UUID)
+  AND ($4::DATE IS NULL OR issued_date >= $4::DATE)
+  AND ($5::DATE IS NULL OR issued_date <= $5::DATE)
 `
 
-type CancelInvoiceParams struct {
-	ID             uuid.UUID `json:"id"`
-	OrganisationID uuid.UUID `json:"organisation_id"`
+type CountInvoicesParams struct {
+	OrganisationID uuid.UUID   `json:"organisation_id"`
+	Status         string      `json:"status"`
+	CustomerID     pgtype.UUID `json:"customer_id"`
+	FromDate       pgtype.Date `json:"from_date"`
+	ToDate         pgtype.Date `json:"to_date"`
 }
 
-func (q *Queries) CancelInvoice(ctx context.Context, arg CancelInvoiceParams) (Invoice, error) {
-	row := q.db.QueryRow(ctx, cancelInvoice, arg.ID, arg.OrganisationID)
-	var i Invoice
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.CustomerID,
-		&i.SessionID,
-		&i.InvoiceNumber,
-		&i.Status,
-		&i.IssuedDate,
-		&i.DueDate,
-		&i.Subtotal,
-		&i.TaxAmount,
-		&i.DiscountAmount,
-		&i.Total,
-		&i.Currency,
-		&i.Notes,
-		&i.Terms,
-		&i.TemplateID,
-		&i.CreatedBy,
-		&i.SentAt,
-		&i.PaidAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const createInvoice = `-- name: CreateInvoice :one
-INSERT INTO invoices (
-    organisation_id, customer_id, session_id, invoice_number, status, issued_date, due_date,
-    subtotal, tax_amount, discount_amount, total, currency, notes, terms, template_id, created_by, created_at, updated_at
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW()
-)
-RETURNING id, organisation_id, customer_id, session_id, invoice_number, status, issued_date, due_date, subtotal, tax_amount, discount_amount, total, currency, notes, terms, template_id, created_by, sent_at, paid_at, created_at, updated_at
-`
-
-type CreateInvoiceParams struct {
-	OrganisationID uuid.UUID      `json:"organisation_id"`
-	CustomerID     uuid.UUID      `json:"customer_id"`
-	SessionID      uuid.UUID      `json:"session_id"`
-	InvoiceNumber  string         `json:"invoice_number"`
-	Status         string         `json:"status"`
-	IssuedDate     pgtype.Date    `json:"issued_date"`
-	DueDate        pgtype.Date    `json:"due_date"`
-	Subtotal       pgtype.Numeric `json:"subtotal"`
-	TaxAmount      pgtype.Numeric `json:"tax_amount"`
-	DiscountAmount pgtype.Numeric `json:"discount_amount"`
-	Total          pgtype.Numeric `json:"total"`
-	Currency       string         `json:"currency"`
-	Notes          *string        `json:"notes"`
-	Terms          *string        `json:"terms"`
-	TemplateID     pgtype.UUID    `json:"template_id"`
-	CreatedBy      pgtype.UUID    `json:"created_by"`
-}
-
-func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoice, error) {
-	row := q.db.QueryRow(ctx, createInvoice,
+func (q *Queries) CountInvoices(ctx context.Context, arg CountInvoicesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInvoices,
 		arg.OrganisationID,
-		arg.CustomerID,
-		arg.SessionID,
-		arg.InvoiceNumber,
 		arg.Status,
-		arg.IssuedDate,
-		arg.DueDate,
-		arg.Subtotal,
-		arg.TaxAmount,
-		arg.DiscountAmount,
-		arg.Total,
-		arg.Currency,
-		arg.Notes,
-		arg.Terms,
-		arg.TemplateID,
-		arg.CreatedBy,
+		arg.CustomerID,
+		arg.FromDate,
+		arg.ToDate,
 	)
-	var i Invoice
-	err := row.Scan(
-		&i.ID,
-		&i.OrganisationID,
-		&i.CustomerID,
-		&i.SessionID,
-		&i.InvoiceNumber,
-		&i.Status,
-		&i.IssuedDate,
-		&i.DueDate,
-		&i.Subtotal,
-		&i.TaxAmount,
-		&i.DiscountAmount,
-		&i.Total,
-		&i.Currency,
-		&i.Notes,
-		&i.Terms,
-		&i.TemplateID,
-		&i.CreatedBy,
-		&i.SentAt,
-		&i.PaidAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
-const createInvoiceItem = `-- name: CreateInvoiceItem :one
-INSERT INTO invoice_items (
-    invoice_id, service_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, sort_order, created_at
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()
-)
-RETURNING id, invoice_id, service_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, sort_order, created_at
+const getInvoices = `-- name: GetInvoices :many
+SELECT i.id, i.organisation_id, i.customer_id, i.session_id, i.invoice_number, i.status,
+    i.issued_date, i.due_date, i.subtotal, i.tax_amount, i.cgst_amount, i.sgst_amount, i.igst_amount,
+    i.discount_amount, i.total, i.grand_total, i.is_same_state, i.currency, i.notes, i.terms,
+    i.template_id, i.created_by, i.sent_at, i.paid_at, i.created_at, i.updated_at,
+    c.name AS customer_name, c.tax_number AS customer_gstin
+FROM invoices i
+LEFT JOIN customers c ON i.customer_id = c.id
+WHERE i.organisation_id = $1
+  AND ($2::TEXT = '' OR i.status = $2)
+  AND ($3::UUID IS NULL OR i.customer_id = $3::UUID)
+  AND ($4::DATE IS NULL OR i.issued_date >= $4::DATE)
+  AND ($5::DATE IS NULL OR i.issued_date <= $5::DATE)
+ORDER BY i.created_at DESC
+LIMIT $7 OFFSET $6
 `
 
-type CreateInvoiceItemParams struct {
-	InvoiceID   uuid.UUID      `json:"invoice_id"`
-	ServiceID   pgtype.UUID    `json:"service_id"`
-	Description string         `json:"description"`
-	Quantity    pgtype.Numeric `json:"quantity"`
-	UnitPrice   pgtype.Numeric `json:"unit_price"`
-	TaxRate     pgtype.Numeric `json:"tax_rate"`
-	TaxAmount   pgtype.Numeric `json:"tax_amount"`
-	LineTotal   pgtype.Numeric `json:"line_total"`
-	SortOrder   int32          `json:"sort_order"`
+type GetInvoicesParams struct {
+	OrganisationID uuid.UUID   `json:"organisation_id"`
+	Status         string      `json:"status"`
+	CustomerID     pgtype.UUID `json:"customer_id"`
+	FromDate       pgtype.Date `json:"from_date"`
+	ToDate         pgtype.Date `json:"to_date"`
+	Offset         int32       `json:"offset"`
+	PerPage        int32       `json:"per_page"`
 }
 
-func (q *Queries) CreateInvoiceItem(ctx context.Context, arg CreateInvoiceItemParams) (InvoiceItem, error) {
-	row := q.db.QueryRow(ctx, createInvoiceItem,
-		arg.InvoiceID,
-		arg.ServiceID,
-		arg.Description,
-		arg.Quantity,
-		arg.UnitPrice,
-		arg.TaxRate,
-		arg.TaxAmount,
-		arg.LineTotal,
-		arg.SortOrder,
+func (q *Queries) GetInvoices(ctx context.Context, arg GetInvoicesParams) ([]InvoiceRow, error) {
+	rows, err := q.db.Query(ctx, getInvoices,
+		arg.OrganisationID,
+		arg.Status,
+		arg.CustomerID,
+		arg.FromDate,
+		arg.ToDate,
+		arg.Offset,
+		arg.PerPage,
 	)
-	var i InvoiceItem
-	err := row.Scan(
-		&i.ID,
-		&i.InvoiceID,
-		&i.ServiceID,
-		&i.Description,
-		&i.Quantity,
-		&i.UnitPrice,
-		&i.TaxRate,
-		&i.TaxAmount,
-		&i.LineTotal,
-		&i.SortOrder,
-		&i.CreatedAt,
-	)
-	return i, err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoiceRow
+	for rows.Next() {
+		var i InvoiceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganisationID,
+			&i.CustomerID,
+			&i.SessionID,
+			&i.InvoiceNumber,
+			&i.Status,
+			&i.IssuedDate,
+			&i.DueDate,
+			&i.Subtotal,
+			&i.TaxAmount,
+			&i.CgstAmount,
+			&i.SgstAmount,
+			&i.IgstAmount,
+			&i.DiscountAmount,
+			&i.Total,
+			&i.GrandTotal,
+			&i.IsSameState,
+			&i.Currency,
+			&i.Notes,
+			&i.Terms,
+			&i.TemplateID,
+			&i.CreatedBy,
+			&i.SentAt,
+			&i.PaidAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CustomerName,
+			&i.CustomerGstin,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getInvoiceByID = `-- name: GetInvoiceByID :one
-SELECT id, organisation_id, customer_id, session_id, invoice_number, status, issued_date, due_date, subtotal, tax_amount, discount_amount, total, currency, notes, terms, template_id, created_by, sent_at, paid_at, created_at, updated_at
+SELECT id, organisation_id, customer_id, session_id, invoice_number, status,
+    issued_date, due_date, subtotal, tax_amount, cgst_amount, sgst_amount, igst_amount,
+    discount_amount, total, grand_total, is_same_state, currency, notes, terms,
+    template_id, created_by, sent_at, paid_at, created_at, updated_at
 FROM invoices
 WHERE id = $1 AND organisation_id = $2
 `
@@ -203,8 +155,13 @@ func (q *Queries) GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) 
 		&i.DueDate,
 		&i.Subtotal,
 		&i.TaxAmount,
+		&i.CgstAmount,
+		&i.SgstAmount,
+		&i.IgstAmount,
 		&i.DiscountAmount,
 		&i.Total,
+		&i.GrandTotal,
+		&i.IsSameState,
 		&i.Currency,
 		&i.Notes,
 		&i.Terms,
@@ -218,8 +175,158 @@ func (q *Queries) GetInvoiceByID(ctx context.Context, arg GetInvoiceByIDParams) 
 	return i, err
 }
 
+const getInvoiceForValidation = `-- name: GetInvoiceForValidation :one
+SELECT id, status, sent_at, paid_at
+FROM invoices
+WHERE id = $1 AND organisation_id = $2
+`
+
+type GetInvoiceForValidationParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) GetInvoiceForValidation(ctx context.Context, arg GetInvoiceForValidationParams) (InvoiceStatusRow, error) {
+	row := q.db.QueryRow(ctx, getInvoiceForValidation, arg.ID, arg.OrganisationID)
+	var i InvoiceStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.SentAt,
+		&i.PaidAt,
+	)
+	return i, err
+}
+
+const incrementSessionSequence = `-- name: IncrementSessionSequence :one
+UPDATE invoice_sessions
+SET current_sequence = current_sequence + 1
+WHERE id = $1 AND organisation_id = $2
+RETURNING current_sequence, prefix, year
+`
+
+type IncrementSessionSequenceParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) IncrementSessionSequence(ctx context.Context, arg IncrementSessionSequenceParams) (IncrementSessionSequenceRow, error) {
+	row := q.db.QueryRow(ctx, incrementSessionSequence, arg.ID, arg.OrganisationID)
+	var i IncrementSessionSequenceRow
+	err := row.Scan(
+		&i.CurrentSequence,
+		&i.Prefix,
+		&i.Year,
+	)
+	return i, err
+}
+
+const createInvoice = `-- name: CreateInvoice :one
+INSERT INTO invoices (
+    organisation_id, customer_id, session_id, invoice_number, status,
+    issued_date, due_date, subtotal, tax_amount, cgst_amount, sgst_amount, igst_amount,
+    discount_amount, total, grand_total, is_same_state, currency, notes, terms,
+    template_id, created_by, created_at, updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()
+)
+RETURNING id
+`
+
+type CreateInvoiceParams struct {
+	OrganisationID uuid.UUID   `json:"organisation_id"`
+	CustomerID     uuid.UUID   `json:"customer_id"`
+	SessionID      pgtype.UUID `json:"session_id"`
+	InvoiceNumber  string      `json:"invoice_number"`
+	Status         string      `json:"status"`
+	IssuedDate     pgtype.Date `json:"issued_date"`
+	DueDate        pgtype.Date `json:"due_date"`
+	Subtotal       float64     `json:"subtotal"`
+	TaxAmount      float64     `json:"tax_amount"`
+	CgstAmount     float64     `json:"cgst_amount"`
+	SgstAmount     float64     `json:"sgst_amount"`
+	IgstAmount     float64     `json:"igst_amount"`
+	DiscountAmount float64     `json:"discount_amount"`
+	Total          float64     `json:"total"`
+	GrandTotal     float64     `json:"grand_total"`
+	IsSameState    bool        `json:"is_same_state"`
+	Currency       string      `json:"currency"`
+	Notes          *string     `json:"notes"`
+	Terms          *string     `json:"terms"`
+	TemplateID     pgtype.UUID `json:"template_id"`
+	CreatedBy      pgtype.UUID `json:"created_by"`
+}
+
+func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, createInvoice,
+		arg.OrganisationID,
+		arg.CustomerID,
+		arg.SessionID,
+		arg.InvoiceNumber,
+		arg.Status,
+		arg.IssuedDate,
+		arg.DueDate,
+		arg.Subtotal,
+		arg.TaxAmount,
+		arg.CgstAmount,
+		arg.SgstAmount,
+		arg.IgstAmount,
+		arg.DiscountAmount,
+		arg.Total,
+		arg.GrandTotal,
+		arg.IsSameState,
+		arg.Currency,
+		arg.Notes,
+		arg.Terms,
+		arg.TemplateID,
+		arg.CreatedBy,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createInvoiceItem = `-- name: CreateInvoiceItem :exec
+INSERT INTO invoice_items (
+    invoice_id, service_id, description, hsn_sac_code, quantity, unit_price,
+    tax_rate, tax_amount, line_total, sort_order, created_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()
+)
+`
+
+type CreateInvoiceItemParams struct {
+	InvoiceID   uuid.UUID   `json:"invoice_id"`
+	ServiceID   pgtype.UUID `json:"service_id"`
+	Description string      `json:"description"`
+	HsnSacCode  *string     `json:"hsn_sac_code"`
+	Quantity    float64     `json:"quantity"`
+	UnitPrice   float64     `json:"unit_price"`
+	TaxRate     float64     `json:"tax_rate"`
+	TaxAmount   float64     `json:"tax_amount"`
+	LineTotal   float64     `json:"line_total"`
+	SortOrder   int32       `json:"sort_order"`
+}
+
+func (q *Queries) CreateInvoiceItem(ctx context.Context, arg CreateInvoiceItemParams) error {
+	_, err := q.db.Exec(ctx, createInvoiceItem,
+		arg.InvoiceID,
+		arg.ServiceID,
+		arg.Description,
+		arg.HsnSacCode,
+		arg.Quantity,
+		arg.UnitPrice,
+		arg.TaxRate,
+		arg.TaxAmount,
+		arg.LineTotal,
+		arg.SortOrder,
+	)
+	return err
+}
+
 const getInvoiceItems = `-- name: GetInvoiceItems :many
-SELECT id, invoice_id, service_id, description, quantity, unit_price, tax_rate, tax_amount, line_total, sort_order, created_at
+SELECT id, invoice_id, service_id, description, hsn_sac_code, quantity, unit_price,
+    tax_rate, tax_amount, line_total, sort_order, created_at
 FROM invoice_items
 WHERE invoice_id = $1
 ORDER BY sort_order ASC
@@ -239,6 +346,7 @@ func (q *Queries) GetInvoiceItems(ctx context.Context, invoiceID uuid.UUID) ([]I
 			&i.InvoiceID,
 			&i.ServiceID,
 			&i.Description,
+			&i.HsnSacCode,
 			&i.Quantity,
 			&i.UnitPrice,
 			&i.TaxRate,
@@ -257,51 +365,41 @@ func (q *Queries) GetInvoiceItems(ctx context.Context, invoiceID uuid.UUID) ([]I
 	return items, nil
 }
 
-const getInvoices = `-- name: GetInvoices :many
-SELECT id, organisation_id, customer_id, session_id, invoice_number, status, issued_date, due_date, subtotal, tax_amount, discount_amount, total, currency, notes, terms, template_id, created_by, sent_at, paid_at, created_at, updated_at
-FROM invoices
-WHERE organisation_id = $1
-ORDER BY created_at DESC
+const cancelInvoice = `-- name: CancelInvoice :one
+UPDATE invoices
+SET status = 'cancelled', updated_at = NOW()
+WHERE id = $1 AND organisation_id = $2 AND status NOT IN ('paid')
+RETURNING id, status
 `
 
-func (q *Queries) GetInvoices(ctx context.Context, organisationID uuid.UUID) ([]Invoice, error) {
-	rows, err := q.db.Query(ctx, getInvoices, organisationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Invoice
-	for rows.Next() {
-		var i Invoice
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganisationID,
-			&i.CustomerID,
-			&i.SessionID,
-			&i.InvoiceNumber,
-			&i.Status,
-			&i.IssuedDate,
-			&i.DueDate,
-			&i.Subtotal,
-			&i.TaxAmount,
-			&i.DiscountAmount,
-			&i.Total,
-			&i.Currency,
-			&i.Notes,
-			&i.Terms,
-			&i.TemplateID,
-			&i.CreatedBy,
-			&i.SentAt,
-			&i.PaidAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type CancelInvoiceParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+type CancelInvoiceRow struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+}
+
+func (q *Queries) CancelInvoice(ctx context.Context, arg CancelInvoiceParams) (CancelInvoiceRow, error) {
+	row := q.db.QueryRow(ctx, cancelInvoice, arg.ID, arg.OrganisationID)
+	var i CancelInvoiceRow
+	err := row.Scan(&i.ID, &i.Status)
+	return i, err
+}
+
+const deleteInvoice = `-- name: DeleteInvoice :exec
+DELETE FROM invoices
+WHERE id = $1 AND organisation_id = $2
+`
+
+type DeleteInvoiceParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) error {
+	_, err := q.db.Exec(ctx, deleteInvoice, arg.ID, arg.OrganisationID)
+	return err
 }

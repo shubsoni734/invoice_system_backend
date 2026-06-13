@@ -10,6 +10,8 @@ func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool) {
 	q := paymentsdb.New(db)
 	handler := NewHandler(q)
 
+	// List all org payments
+	router.GET("/payments", handler.ListPayments)
 	// Record a payment
 	router.POST("/payments", handler.RecordPayment)
 	// Delete a payment

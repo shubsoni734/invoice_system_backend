@@ -27,16 +27,32 @@ type AuditLog struct {
 }
 
 type Customer struct {
-	ID             uuid.UUID          `json:"id"`
-	OrganisationID uuid.UUID          `json:"organisation_id"`
-	Name           string             `json:"name"`
-	Email          *string            `json:"email"`
-	Phone          *string            `json:"phone"`
-	Address        *string            `json:"address"`
-	TaxNumber      *string            `json:"tax_number"`
-	IsActive       bool               `json:"is_active"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                  uuid.UUID          `json:"id"`
+	OrganisationID      uuid.UUID          `json:"organisation_id"`
+	CustomerType        string             `json:"customer_type"`
+	Name                string             `json:"name"`
+	CompanyName         *string            `json:"company_name"`
+	Email               *string            `json:"email"`
+	Phone               *string            `json:"phone"`
+	GstTreatment        *string            `json:"gst_treatment"`
+	TaxNumber           *string            `json:"tax_number"`
+	BusinessLegalName   *string            `json:"business_legal_name"`
+	BusinessTradeName   *string            `json:"business_trade_name"`
+	PlaceOfSupply       *string            `json:"place_of_supply"`
+	Pan                 *string            `json:"pan"`
+	TaxPreference       string             `json:"tax_preference"`
+	ExemptionReason     *string            `json:"exemption_reason"`
+	GstTds              bool               `json:"gst_tds"`
+	PaymentTerm         *string            `json:"payment_term"`
+	Document            *string            `json:"document"`
+	Address             *string            `json:"address"`
+	ContactPersonName   *string            `json:"contact_person_name"`
+	ContactPersonEmail  *string            `json:"contact_person_email"`
+	ContactPersonMobile *string            `json:"contact_person_mobile"`
+	Remark              *string            `json:"remark"`
+	IsActive            bool               `json:"is_active"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ImpersonationSession struct {

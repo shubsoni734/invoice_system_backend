@@ -186,16 +186,22 @@ type Role struct {
 }
 
 type Service struct {
-	ID             uuid.UUID          `json:"id"`
-	OrganisationID uuid.UUID          `json:"organisation_id"`
-	Name           string             `json:"name"`
-	Description    *string            `json:"description"`
-	UnitPrice      pgtype.Numeric     `json:"unit_price"`
-	TaxRate        pgtype.Numeric     `json:"tax_rate"`
-	Unit           string             `json:"unit"`
-	IsActive       bool               `json:"is_active"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                  uuid.UUID          `json:"id"`
+	OrganisationID      uuid.UUID          `json:"organisation_id"`
+	Type                string             `json:"type"`
+	Name                string             `json:"name"`
+	Description         *string            `json:"description"`
+	Unit                *string            `json:"unit"`
+	HsnCode             *string            `json:"hsn_code"`
+	SacCode             *string            `json:"sac_code"`
+	TaxPreference       string             `json:"tax_preference"`
+	IntraStateTaxRate   float64            `json:"intra_state_tax_rate"`
+	InterStateTaxRate   float64            `json:"inter_state_tax_rate"`
+	SellingPrice        float64            `json:"selling_price"`
+	Account             *string            `json:"account"`
+	IsActive            bool               `json:"is_active"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Setting struct {

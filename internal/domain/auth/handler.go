@@ -245,6 +245,92 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	response.Success(c, http.StatusOK, "Password reset email sent successfully", nil)
 }
 
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// RefreshToken POST /api/v1/auth/refresh
+func (h *Handler) RefreshToken(c *gin.Context) {
+	var req RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		return
+	}
+
+	ctx := context.Background()
+	tokenHash := utils.HashToken(req.RefreshToken)
+
+	dbToken, err := h.q.GetRefreshToken(ctx, tokenHash)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "Invalid or expired refresh token")
+		return
+	}
+
+	user, err := h.q.GetUserByID(ctx, dbToken.UserID)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "User not found")
+		return
+	}
+	if !user.IsActive {
+		response.Error(c, http.StatusForbidden, "Account is inactive")
+		return
+	}
+
+	_ = h.q.RevokeRefreshToken(ctx, dbToken.ID)
+
+	idStr := user.ID.String()
+	orgStr := user.OrganisationID.String()
+
+	accessToken, err := h.jwtManager.GenerateToken(&utils.Claims{
+		UserID: idStr,
+		OrgID:  orgStr,
+		Role:   user.Role,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to generate access token")
+		return
+	}
+
+	newRefreshToken, err := h.jwtManager.GenerateRefreshToken(&utils.Claims{
+		UserID: idStr,
+		OrgID:  orgStr,
+		Role:   user.Role,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to generate refresh token")
+		return
+	}
+
+	ip, _ := netip.ParseAddr(c.ClientIP())
+	uaStr := c.Request.UserAgent()
+	var ua *string
+	if uaStr != "" {
+		ua = &uaStr
+	}
+	var ipType *netip.Addr
+	if ip.IsValid() {
+		ipType = &ip
+	}
+
+	expiresAt := pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true}
+	_, err = h.q.CreateRefreshToken(ctx, adminauthdb.CreateRefreshTokenParams{
+		UserID:    user.ID,
+		TokenHash: utils.HashToken(newRefreshToken),
+		ExpiresAt: expiresAt,
+		IpAddress: ipType,
+		UserAgent: ua,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to store refresh token")
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Token refreshed successfully", gin.H{
+		"access_token":  accessToken,
+		"refresh_token": newRefreshToken,
+	})
+}
+
 // ResetPassword POST /api/v1/auth/reset-password
 func (h *Handler) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest

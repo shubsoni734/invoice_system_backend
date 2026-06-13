@@ -12,6 +12,78 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getPaymentsByInvoice = `-- name: GetPaymentsByInvoice :many
+SELECT id, organisation_id, invoice_id, amount, method, reference, notes, payment_date, recorded_by, created_at
+FROM payments
+WHERE invoice_id = $1 AND organisation_id = $2
+ORDER BY created_at DESC
+`
+
+type GetPaymentsByInvoiceParams struct {
+	InvoiceID      uuid.UUID `json:"invoice_id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) GetPaymentsByInvoice(ctx context.Context, arg GetPaymentsByInvoiceParams) ([]Payment, error) {
+	rows, err := q.db.Query(ctx, getPaymentsByInvoice, arg.InvoiceID, arg.OrganisationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Payment
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganisationID,
+			&i.InvoiceID,
+			&i.Amount,
+			&i.Method,
+			&i.Reference,
+			&i.Notes,
+			&i.PaymentDate,
+			&i.RecordedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPaymentByID = `-- name: GetPaymentByID :one
+SELECT id, organisation_id, invoice_id, amount, method, reference, notes, payment_date, recorded_by, created_at
+FROM payments
+WHERE id = $1 AND organisation_id = $2
+`
+
+type GetPaymentByIDParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) GetPaymentByID(ctx context.Context, arg GetPaymentByIDParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, getPaymentByID, arg.ID, arg.OrganisationID)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganisationID,
+		&i.InvoiceID,
+		&i.Amount,
+		&i.Method,
+		&i.Reference,
+		&i.Notes,
+		&i.PaymentDate,
+		&i.RecordedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createPayment = `-- name: CreatePayment :one
 INSERT INTO payments (
     organisation_id, invoice_id, amount, method, reference, notes, payment_date, recorded_by, created_at
@@ -22,14 +94,14 @@ RETURNING id, organisation_id, invoice_id, amount, method, reference, notes, pay
 `
 
 type CreatePaymentParams struct {
-	OrganisationID uuid.UUID      `json:"organisation_id"`
-	InvoiceID      uuid.UUID      `json:"invoice_id"`
-	Amount         pgtype.Numeric `json:"amount"`
-	Method         string         `json:"method"`
-	Reference      *string        `json:"reference"`
-	Notes          *string        `json:"notes"`
-	PaymentDate    pgtype.Date    `json:"payment_date"`
-	RecordedBy     pgtype.UUID    `json:"recorded_by"`
+	OrganisationID uuid.UUID   `json:"organisation_id"`
+	InvoiceID      uuid.UUID   `json:"invoice_id"`
+	Amount         float64     `json:"amount"`
+	Method         *string     `json:"method"`
+	Reference      *string     `json:"reference"`
+	Notes          *string     `json:"notes"`
+	PaymentDate    pgtype.Date `json:"payment_date"`
+	RecordedBy     pgtype.UUID `json:"recorded_by"`
 }
 
 func (q *Queries) CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payment, error) {
@@ -74,27 +146,81 @@ func (q *Queries) DeletePayment(ctx context.Context, arg DeletePaymentParams) er
 	return err
 }
 
-const getPaymentsByInvoice = `-- name: GetPaymentsByInvoice :many
-SELECT id, organisation_id, invoice_id, amount, method, reference, notes, payment_date, recorded_by, created_at
-FROM payments
-WHERE invoice_id = $1 AND organisation_id = $2
-ORDER BY created_at DESC
+const getInvoicePaymentSummary = `-- name: GetInvoicePaymentSummary :one
+SELECT i.grand_total, i.status, COALESCE(SUM(p.amount), 0) AS total_paid
+FROM invoices i
+LEFT JOIN payments p ON p.invoice_id = i.id
+WHERE i.id = $1 AND i.organisation_id = $2
+GROUP BY i.grand_total, i.status
 `
 
-type GetPaymentsByInvoiceParams struct {
-	InvoiceID      uuid.UUID `json:"invoice_id"`
+type GetInvoicePaymentSummaryParams struct {
+	ID             uuid.UUID `json:"id"`
 	OrganisationID uuid.UUID `json:"organisation_id"`
 }
 
-func (q *Queries) GetPaymentsByInvoice(ctx context.Context, arg GetPaymentsByInvoiceParams) ([]Payment, error) {
-	rows, err := q.db.Query(ctx, getPaymentsByInvoice, arg.InvoiceID, arg.OrganisationID)
+func (q *Queries) GetInvoicePaymentSummary(ctx context.Context, arg GetInvoicePaymentSummaryParams) (InvoiceSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getInvoicePaymentSummary, arg.ID, arg.OrganisationID)
+	var i InvoiceSummaryRow
+	err := row.Scan(
+		&i.GrandTotal,
+		&i.Status,
+		&i.TotalPaid,
+	)
+	return i, err
+}
+
+const markInvoicePaid = `-- name: MarkInvoicePaid :exec
+UPDATE invoices
+SET status = 'paid', paid_at = NOW(), updated_at = NOW()
+WHERE id = $1 AND organisation_id = $2
+`
+
+type MarkInvoicePaidParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) MarkInvoicePaid(ctx context.Context, arg MarkInvoicePaidParams) error {
+	_, err := q.db.Exec(ctx, markInvoicePaid, arg.ID, arg.OrganisationID)
+	return err
+}
+
+const getAllPaymentsWithDetails = `-- name: GetAllPaymentsWithDetails :many
+SELECT
+    p.id, p.organisation_id, p.invoice_id, p.amount, p.method, p.reference, p.notes,
+    p.payment_date, p.recorded_by, p.created_at,
+    i.invoice_number, c.name AS customer_name
+FROM payments p
+JOIN invoices i ON i.id = p.invoice_id
+JOIN customers c ON c.id = i.customer_id
+WHERE p.organisation_id = $1
+ORDER BY p.created_at DESC`
+
+type PaymentWithDetailsRow struct {
+	ID             uuid.UUID          `json:"id"`
+	OrganisationID uuid.UUID          `json:"organisation_id"`
+	InvoiceID      uuid.UUID          `json:"invoice_id"`
+	Amount         float64            `json:"amount"`
+	Method         *string            `json:"method"`
+	Reference      *string            `json:"reference"`
+	Notes          *string            `json:"notes"`
+	PaymentDate    pgtype.Date        `json:"payment_date"`
+	RecordedBy     pgtype.UUID        `json:"recorded_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	InvoiceNumber  string             `json:"invoice_number"`
+	CustomerName   string             `json:"customer_name"`
+}
+
+func (q *Queries) GetAllPaymentsWithDetails(ctx context.Context, organisationID uuid.UUID) ([]PaymentWithDetailsRow, error) {
+	rows, err := q.db.Query(ctx, getAllPaymentsWithDetails, organisationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Payment
+	var items []PaymentWithDetailsRow
 	for rows.Next() {
-		var i Payment
+		var i PaymentWithDetailsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganisationID,
@@ -106,6 +232,8 @@ func (q *Queries) GetPaymentsByInvoice(ctx context.Context, arg GetPaymentsByInv
 			&i.PaymentDate,
 			&i.RecordedBy,
 			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.CustomerName,
 		); err != nil {
 			return nil, err
 		}
@@ -117,40 +245,18 @@ func (q *Queries) GetPaymentsByInvoice(ctx context.Context, arg GetPaymentsByInv
 	return items, nil
 }
 
-const getPaymentsByOrg = `-- name: GetPaymentsByOrg :many
-SELECT id, organisation_id, invoice_id, amount, method, reference, notes, payment_date, recorded_by, created_at
-FROM payments
-WHERE organisation_id = $1
-ORDER BY created_at DESC
+const reverseInvoicePaidStatus = `-- name: ReverseInvoicePaidStatus :exec
+UPDATE invoices
+SET status = 'sent', paid_at = NULL, updated_at = NOW()
+WHERE id = $1 AND organisation_id = $2 AND status = 'paid'
 `
 
-func (q *Queries) GetPaymentsByOrg(ctx context.Context, organisationID uuid.UUID) ([]Payment, error) {
-	rows, err := q.db.Query(ctx, getPaymentsByOrg, organisationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Payment
-	for rows.Next() {
-		var i Payment
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganisationID,
-			&i.InvoiceID,
-			&i.Amount,
-			&i.Method,
-			&i.Reference,
-			&i.Notes,
-			&i.PaymentDate,
-			&i.RecordedBy,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type ReverseInvoicePaidStatusParams struct {
+	ID             uuid.UUID `json:"id"`
+	OrganisationID uuid.UUID `json:"organisation_id"`
+}
+
+func (q *Queries) ReverseInvoicePaidStatus(ctx context.Context, arg ReverseInvoicePaidStatusParams) error {
+	_, err := q.db.Exec(ctx, reverseInvoicePaidStatus, arg.ID, arg.OrganisationID)
+	return err
 }

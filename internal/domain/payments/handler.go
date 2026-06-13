@@ -22,9 +22,9 @@ func NewHandler(q *paymentsdb.Queries) *Handler {
 }
 
 type RecordPaymentRequest struct {
-	InvoiceID   uuid.UUID `json:"invoice_id" binding:"required"`
-	Amount      float64   `json:"amount" binding:"required,gt=0"`
-	Method      string    `json:"method" binding:"required"`
+	InvoiceID   uuid.UUID `json:"invoice_id"`
+	Amount      float64   `json:"amount"`
+	Method      *string   `json:"method"`
 	Reference   *string   `json:"reference"`
 	Notes       *string   `json:"notes"`
 	PaymentDate string    `json:"payment_date"` // YYYY-MM-DD, defaults to today
@@ -36,12 +36,6 @@ func getOrgID(c *gin.Context) (uuid.UUID, error) {
 
 func getUserID(c *gin.Context) (uuid.UUID, error) {
 	return uuid.Parse(c.GetString(constants.CtxUserID))
-}
-
-func floatToNumeric(f float64) pgtype.Numeric {
-	var n pgtype.Numeric
-	n.Scan(f)
-	return n
 }
 
 // GetPaymentsByInvoice GET /api/v1/invoices/:id/payments
@@ -93,6 +87,15 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 
+	if req.InvoiceID == uuid.Nil {
+		response.Error(c, http.StatusBadRequest, "invoice_id is required")
+		return
+	}
+	if req.Amount <= 0 {
+		response.Error(c, http.StatusBadRequest, "amount must be greater than 0")
+		return
+	}
+
 	payDate := time.Now()
 	if req.PaymentDate != "" {
 		if parsed, parseErr := time.Parse("2006-01-02", req.PaymentDate); parseErr == nil {
@@ -100,16 +103,13 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		}
 	}
 
-	method := req.Method
-	if method == "" {
-		method = constants.PaymentCash
-	}
+	ctx := context.Background()
 
-	payment, err := h.q.CreatePayment(context.Background(), paymentsdb.CreatePaymentParams{
+	payment, err := h.q.CreatePayment(ctx, paymentsdb.CreatePaymentParams{
 		OrganisationID: orgID,
 		InvoiceID:      req.InvoiceID,
-		Amount:         floatToNumeric(req.Amount),
-		Method:         method,
+		Amount:         req.Amount,
+		Method:         req.Method,
 		Reference:      req.Reference,
 		Notes:          req.Notes,
 		PaymentDate:    pgtype.Date{Time: payDate, Valid: true},
@@ -120,7 +120,39 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 
+	// Auto-mark invoice as paid if fully covered
+	summary, summaryErr := h.q.GetInvoicePaymentSummary(ctx, paymentsdb.GetInvoicePaymentSummaryParams{
+		ID:             req.InvoiceID,
+		OrganisationID: orgID,
+	})
+	if summaryErr == nil && summary.GrandTotal > 0 && summary.TotalPaid >= summary.GrandTotal {
+		_ = h.q.MarkInvoicePaid(ctx, paymentsdb.MarkInvoicePaidParams{
+			ID:             req.InvoiceID,
+			OrganisationID: orgID,
+		})
+	}
+
 	response.Success(c, http.StatusCreated, "Payment recorded successfully", payment)
+}
+
+// ListPayments GET /api/v1/payments
+func (h *Handler) ListPayments(c *gin.Context) {
+	orgID, err := getOrgID(c)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "Invalid organisation ID")
+		return
+	}
+
+	payments, err := h.q.GetAllPaymentsWithDetails(context.Background(), orgID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to fetch payments")
+		return
+	}
+	if payments == nil {
+		payments = []paymentsdb.PaymentWithDetailsRow{}
+	}
+
+	response.Success(c, http.StatusOK, "Payments retrieved", payments)
 }
 
 // DeletePayment DELETE /api/v1/payments/:id
@@ -137,12 +169,36 @@ func (h *Handler) DeletePayment(c *gin.Context) {
 		return
 	}
 
-	if err := h.q.DeletePayment(context.Background(), paymentsdb.DeletePaymentParams{
+	ctx := context.Background()
+
+	// Fetch payment to get invoice_id before deleting
+	existing, err := h.q.GetPaymentByID(ctx, paymentsdb.GetPaymentByIDParams{
+		ID:             id,
+		OrganisationID: orgID,
+	})
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "Payment not found")
+		return
+	}
+
+	if err := h.q.DeletePayment(ctx, paymentsdb.DeletePaymentParams{
 		ID:             id,
 		OrganisationID: orgID,
 	}); err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to delete payment")
 		return
+	}
+
+	// Recalculate invoice status: if it was paid and total_paid < grand_total, revert to 'sent'
+	summary, summaryErr := h.q.GetInvoicePaymentSummary(ctx, paymentsdb.GetInvoicePaymentSummaryParams{
+		ID:             existing.InvoiceID,
+		OrganisationID: orgID,
+	})
+	if summaryErr == nil && summary.Status == "paid" && summary.TotalPaid < summary.GrandTotal {
+		_ = h.q.ReverseInvoicePaidStatus(ctx, paymentsdb.ReverseInvoicePaidStatusParams{
+			ID:             existing.InvoiceID,
+			OrganisationID: orgID,
+		})
 	}
 
 	response.Success(c, http.StatusOK, "Payment deleted", nil)

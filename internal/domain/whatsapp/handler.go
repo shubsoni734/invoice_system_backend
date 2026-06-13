@@ -13,26 +13,40 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	customersdb "github.com/your-org/invoice-backend/internal/domain/customers/sqlc"
+	invoicesdb "github.com/your-org/invoice-backend/internal/domain/invoices/sqlc"
+	settingsdb "github.com/your-org/invoice-backend/internal/domain/settings/sqlc"
 	whatsappdb "github.com/your-org/invoice-backend/internal/domain/whatsapp/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
 )
 
 type Handler struct {
-	q          *whatsappdb.Queries
-	db         *pgxpool.Pool
-	apiURL     string
-	apiKey     string
+	q         *whatsappdb.Queries
+	db        *pgxpool.Pool
+	apiURL    string
+	apiKey    string
+	invoiceQ  *invoicesdb.Queries
+	customerQ *customersdb.Queries
+	settingsQ *settingsdb.Queries
 }
 
 func NewHandler(q *whatsappdb.Queries, db *pgxpool.Pool, apiURL, apiKey string) *Handler {
-	return &Handler{q: q, db: db, apiURL: apiURL, apiKey: apiKey}
+	return &Handler{
+		q:         q,
+		db:        db,
+		apiURL:    apiURL,
+		apiKey:    apiKey,
+		invoiceQ:  invoicesdb.New(db),
+		customerQ: customersdb.New(db),
+		settingsQ: settingsdb.New(db),
+	}
 }
 
 type SendWhatsAppRequest struct {
 	InvoiceID      uuid.UUID `json:"invoice_id" binding:"required"`
-	RecipientPhone string    `json:"recipient_phone" binding:"required"`
-	Message        string    `json:"message" binding:"required"`
+	RecipientPhone string    `json:"recipient_phone"`
+	Message        string    `json:"message"`
 }
 
 func getOrgID(c *gin.Context) (uuid.UUID, error) {
@@ -74,13 +88,45 @@ func (h *Handler) SendWhatsApp(c *gin.Context) {
 	}
 
 	ctx := context.Background()
+
+	inv, err := h.invoiceQ.GetInvoiceByID(ctx, invoicesdb.GetInvoiceByIDParams{
+		ID:             req.InvoiceID,
+		OrganisationID: orgID,
+	})
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "Invoice not found")
+		return
+	}
+
+	customer, _ := h.customerQ.GetCustomerByID(ctx, customersdb.GetCustomerByIDParams{
+		ID:             inv.CustomerID,
+		OrganisationID: orgID,
+	})
+
+	settings, _ := h.settingsQ.GetSettings(ctx, orgID)
+
+	// Resolve phone: request field → customer phone
+	phone := req.RecipientPhone
+	if phone == "" && customer.Phone != nil && *customer.Phone != "" {
+		phone = *customer.Phone
+	}
+	if phone == "" {
+		response.Error(c, http.StatusBadRequest, "No recipient phone — provide recipient_phone or add phone to customer")
+		return
+	}
+
+	// Build message from template if not provided
+	message := req.Message
+	if message == "" {
+		message = buildWhatsAppMessage(settings, inv, customer)
+	}
+
 	status := constants.WASent
 	var errMsg *string
 	sentAt := pgtype.Timestamptz{Time: time.Now(), Valid: true}
 
-	// Attempt to send via external WhatsApp API if configured
 	if h.apiURL != "" && h.apiKey != "" {
-		if sendErr := h.sendViaAPI(req.RecipientPhone, req.Message); sendErr != nil {
+		if sendErr := h.sendViaAPI(phone, message); sendErr != nil {
 			status = constants.WAFailed
 			msg := sendErr.Error()
 			errMsg = &msg
@@ -91,8 +137,8 @@ func (h *Handler) SendWhatsApp(c *gin.Context) {
 	log, err := h.q.CreateWhatsappLog(ctx, whatsappdb.CreateWhatsappLogParams{
 		OrganisationID: orgID,
 		InvoiceID:      req.InvoiceID,
-		RecipientPhone: req.RecipientPhone,
-		Message:        req.Message,
+		RecipientPhone: phone,
+		Message:        message,
 		Status:         status,
 		ErrorMessage:   errMsg,
 		SentAt:         sentAt,
@@ -103,6 +149,35 @@ func (h *Handler) SendWhatsApp(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusCreated, "WhatsApp message sent", log)
+}
+
+func buildWhatsAppMessage(settings settingsdb.Setting, inv invoicesdb.Invoice, customer customersdb.Customer) string {
+	tmpl := settings.WhatsappMessageTemplate
+	if tmpl == "" {
+		tmpl = "Dear {{customer_name}}, please find invoice {{invoice_number}} for {{currency}} {{grand_total}}. Due: {{due_date}}."
+	}
+
+	dueDate := ""
+	if inv.DueDate.Valid {
+		dueDate = inv.DueDate.Time.Format("02 Jan 2006")
+	}
+
+	bizName := ""
+	if settings.BusinessName != nil {
+		bizName = *settings.BusinessName
+	}
+
+	r := strings.NewReplacer(
+		"{{customer_name}}", customer.Name,
+		"{{invoice_number}}", inv.InvoiceNumber,
+		"{{total}}", fmt.Sprintf("%.2f", inv.Total),
+		"{{grand_total}}", fmt.Sprintf("%.2f", inv.GrandTotal),
+		"{{amount}}", fmt.Sprintf("%.2f", inv.GrandTotal),
+		"{{currency}}", inv.Currency,
+		"{{due_date}}", dueDate,
+		"{{business_name}}", bizName,
+	)
+	return r.Replace(tmpl)
 }
 
 func (h *Handler) sendViaAPI(phone, message string) error {
