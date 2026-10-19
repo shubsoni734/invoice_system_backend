@@ -59,13 +59,6 @@ func (h *Handler) CreateRole(c *gin.Context) {
 		return
 	}
 
-	// Permission check (Admin only)
-	roleName := c.GetString(constants.CtxUserRole)
-	if roleName != constants.RoleOrgAdmin {
-		response.Error(c, http.StatusForbidden, "Only administrators can create roles")
-		return
-	}
-
 	var req CreateRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body: "+err.Error())
@@ -102,13 +95,6 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 	orgID, err := uuid.Parse(orgIDStr)
 	if err != nil {
 		response.Error(c, http.StatusUnauthorized, "Invalid organization context")
-		return
-	}
-
-	// Permission check (Admin only)
-	roleName := c.GetString(constants.CtxUserRole)
-	if roleName != constants.RoleOrgAdmin {
-		response.Error(c, http.StatusForbidden, "Only administrators can update roles")
 		return
 	}
 
@@ -161,13 +147,6 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 		return
 	}
 
-	// Permission check (Admin only)
-	roleName := c.GetString(constants.CtxUserRole)
-	if roleName != constants.RoleOrgAdmin {
-		response.Error(c, http.StatusForbidden, "Only administrators can delete roles")
-		return
-	}
-
 	roleID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid role ID")
@@ -186,6 +165,7 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 
 	response.Success(c, http.StatusOK, "Role deleted successfully", nil)
 }
+
 // GetRole GET /api/v1/roles/:id
 func (h *Handler) GetRole(c *gin.Context) {
 	orgIDStr := c.GetString(constants.CtxOrgID)

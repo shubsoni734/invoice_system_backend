@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	customersdb "github.com/your-org/invoice-backend/internal/domain/customers/sqlc"
+	"github.com/your-org/invoice-backend/internal/domain/notify"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 	"github.com/your-org/invoice-backend/internal/shared/constants"
@@ -22,13 +23,13 @@ var (
 )
 
 var validGSTTreatments = map[string]bool{
-	"Registered Business - Regular":      true,
-	"Registered Business - Composition":  true,
-	"Unregistered Business":              true,
-	"Consumer":                           true,
-	"Overseas":                           true,
-	"Special Economic Zone (SEZ)":        true,
-	"Deemed Export":                      true,
+	"Registered Business - Regular":     true,
+	"Registered Business - Composition": true,
+	"Unregistered Business":             true,
+	"Consumer":                          true,
+	"Overseas":                          true,
+	"Special Economic Zone (SEZ)":       true,
+	"Deemed Export":                     true,
 }
 
 var gstTreatmentsRequiringTaxNumber = map[string]bool{
@@ -411,6 +412,7 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		return
 	}
 
+	notify.Publish(orgID, "Customer added", strings.TrimSpace(req.Name)+" was added.", "info")
 	response.Success(c, http.StatusCreated, "Customer created successfully", res)
 }
 

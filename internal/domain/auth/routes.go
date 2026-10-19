@@ -17,7 +17,7 @@ func RegisterRoutes(
 	frontendURL string,
 ) {
 	q := adminauthdb.New(db)
-	handler := NewHandler(q, jwtManager, emailClient, frontendURL)
+	handler := NewHandler(q, db, jwtManager, emailClient, frontendURL)
 
 	// Public routes
 	public.POST("/login", handler.Login)
@@ -27,5 +27,6 @@ func RegisterRoutes(
 
 	// Protected routes
 	protected.GET("/auth/me", handler.GetMe)
+	protected.PUT("/auth/profile", handler.UpdateProfile)
 	protected.POST("/auth/logout", handler.Logout)
 }

@@ -3,7 +3,7 @@ CMD_PATH=./cmd/api
 MIGRATIONS_DIR=./internal/pkg/db/migrations
 DB_URL=$(shell grep DATABASE_URL .env.development | cut -d '=' -f2-)
 
-.PHONY: run build migrate-up migrate-down migrate-status tidy sqlc
+.PHONY: run build migrate-up migrate-down migrate-status tidy sqlc test
 
 run:
 	go run $(CMD_PATH)/main.go
@@ -13,6 +13,9 @@ build:
 
 tidy:
 	go mod tidy
+
+test:
+	go test ./...
 
 sqlc:
 	sqlc generate

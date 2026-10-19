@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	whatsappdb "github.com/your-org/invoice-backend/internal/domain/whatsapp/sqlc"
+	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 )
 
 func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, apiURL, apiKey string) {
@@ -12,7 +13,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, apiURL, apiKey st
 
 	wa := router.Group("/whatsapp")
 	{
-		wa.GET("/logs", handler.GetWhatsAppLogs)
-		wa.POST("/send", handler.SendWhatsApp)
+		wa.GET("/logs", middleware.RequireAccess(db, "whatsapp", "read"), handler.GetWhatsAppLogs)
+		wa.POST("/send", middleware.RequireAccess(db, "whatsapp", "create"), handler.SendWhatsApp)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	servicesdb "github.com/your-org/invoice-backend/internal/domain/services/sqlc"
+	"github.com/your-org/invoice-backend/internal/pkg/middleware"
 )
 
 func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool) {
@@ -12,10 +13,10 @@ func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool) {
 
 	servicesGroup := router.Group("/services")
 	{
-		servicesGroup.GET("", handler.GetServices)
-		servicesGroup.GET("/:id", handler.GetServiceByID)
-		servicesGroup.POST("", handler.CreateService)
-		servicesGroup.PUT("/:id", handler.UpdateService)
-		servicesGroup.DELETE("/:id", handler.DeleteService)
+		servicesGroup.GET("", middleware.RequireAccess(db, "services", "read"), handler.GetServices)
+		servicesGroup.GET("/:id", middleware.RequireAccess(db, "services", "read"), handler.GetServiceByID)
+		servicesGroup.POST("", middleware.RequireAccess(db, "services", "create"), handler.CreateService)
+		servicesGroup.PUT("/:id", middleware.RequireAccess(db, "services", "update"), handler.UpdateService)
+		servicesGroup.DELETE("/:id", middleware.RequireAccess(db, "services", "delete"), handler.DeleteService)
 	}
 }

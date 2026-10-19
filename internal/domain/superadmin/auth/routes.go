@@ -8,9 +8,9 @@ import (
 	"github.com/your-org/invoice-backend/internal/pkg/utils"
 )
 
-func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, jwtManager *utils.JWTManager, authRateLimiter *middleware.RateLimiter, ipAllowlist []string) {
+func RegisterRoutes(router *gin.RouterGroup, db *pgxpool.Pool, jwtManager *utils.JWTManager, authRateLimiter *middleware.RateLimiter, ipAllowlist []string, environment, bootstrapSecret string) {
 	q := authdb.New(db)
-	handler := NewHandler(q, jwtManager)
+	handler := NewHandler(q, jwtManager, environment, bootstrapSecret)
 
 	// Public routes
 	public := router.Group("/auth")

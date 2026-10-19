@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"net/netip"
 	"time"
@@ -16,12 +17,19 @@ import (
 )
 
 type Handler struct {
-	q          *authdb.Queries
-	jwtManager *utils.JWTManager
+	q               *authdb.Queries
+	jwtManager      *utils.JWTManager
+	environment     string
+	bootstrapSecret string
 }
 
-func NewHandler(q *authdb.Queries, jwtManager *utils.JWTManager) *Handler {
-	return &Handler{q: q, jwtManager: jwtManager}
+func NewHandler(q *authdb.Queries, jwtManager *utils.JWTManager, environment, bootstrapSecret string) *Handler {
+	return &Handler{
+		q:               q,
+		jwtManager:      jwtManager,
+		environment:     environment,
+		bootstrapSecret: bootstrapSecret,
+	}
 }
 
 type CreateSuperAdminRequest struct {
@@ -35,7 +43,29 @@ type LoginRequest struct {
 }
 
 // CreateSuperAdmin POST /superadmin/auth/create
+func (h *Handler) allowBootstrap(provided string) bool {
+	secret := h.bootstrapSecret
+	if h.environment == "production" {
+		if secret == "" || provided == "" || len(provided) != len(secret) {
+			return false
+		}
+		return subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) == 1
+	}
+	if secret == "" {
+		return true
+	}
+	if provided == "" || len(provided) != len(secret) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) == 1
+}
+
 func (h *Handler) CreateSuperAdmin(c *gin.Context) {
+	if !h.allowBootstrap(c.GetHeader("X-Bootstrap-Secret")) {
+		response.Error(c, http.StatusForbidden, "Superadmin creation is disabled")
+		return
+	}
+
 	var req CreateSuperAdminRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())

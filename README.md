@@ -85,9 +85,12 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 ### 2. Configure environment
 ```bash
-cp .env.development .env
+cp .env.example .env
 # Edit .env and set DATABASE_URL, ORG_JWT_SECRET, SA_JWT_SECRET
+# Add BREVO_API_KEY and BREVO_SENDER_EMAIL when you are ready to send email
 ```
+
+Email is sent through the Brevo transactional API. The server starts without those keys. Welcome, password-reset, invoice, and test messages fail with a configuration error until `BREVO_API_KEY` and `BREVO_SENDER_EMAIL` are set. In production, set `SA_BOOTSTRAP_SECRET` and send it as `X-Bootstrap-Secret` to create the first superadmin.
 
 ### 4. Run migrations
 ```bash
@@ -112,6 +115,7 @@ make run
 make run            # Run the server
 make build          # Build binary to bin/
 make tidy           # go mod tidy
+make test           # Run unit tests
 make sqlc           # Regenerate sqlc code
 make migrate-up     # Run all pending migrations
 make migrate-down   # Roll back last migration

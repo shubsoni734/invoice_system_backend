@@ -232,6 +232,11 @@ func (h *Handler) SetUserStatus(c *gin.Context) {
 		return
 	}
 
+	if actorID, actorErr := uuid.Parse(c.GetString(constants.CtxUserID)); actorErr == nil && actorID == userID {
+		response.Error(c, http.StatusForbidden, "You cannot enable or disable your own account")
+		return
+	}
+
 	var req SetStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body")

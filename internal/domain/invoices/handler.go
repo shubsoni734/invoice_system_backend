@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	customersdb "github.com/your-org/invoice-backend/internal/domain/customers/sqlc"
 	invoicesdb "github.com/your-org/invoice-backend/internal/domain/invoices/sqlc"
+	"github.com/your-org/invoice-backend/internal/domain/notify"
 	settingsdb "github.com/your-org/invoice-backend/internal/domain/settings/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
@@ -395,6 +396,8 @@ func (h *Handler) CreateInvoice(c *gin.Context) {
 		items = []invoicesdb.InvoiceItem{}
 	}
 
+	notify.Publish(orgID, "Invoice created", inv.InvoiceNumber+" was created.", "success")
+
 	response.Success(c, http.StatusCreated, "Invoice created successfully", gin.H{
 		"invoice": inv,
 		"items":   items,
@@ -443,6 +446,7 @@ func (h *Handler) CancelInvoice(c *gin.Context) {
 		return
 	}
 
+	notify.Publish(orgID, "Invoice cancelled", h.invoiceLabel(ctx, id)+" was cancelled.", "warning")
 	response.Success(c, http.StatusOK, "Invoice cancelled successfully", result)
 }
 
@@ -484,6 +488,7 @@ func (h *Handler) SendInvoice(c *gin.Context) {
 		return
 	}
 
+	notify.Publish(orgID, "Invoice sent", h.invoiceLabel(ctx, id)+" was sent.", "info")
 	response.Success(c, http.StatusOK, "Invoice sent successfully", updated)
 }
 
@@ -525,17 +530,21 @@ func (h *Handler) MarkInvoiceAsPaid(c *gin.Context) {
 		return
 	}
 
+	notify.Publish(orgID, "Invoice paid", h.invoiceLabel(ctx, id)+" was marked paid.", "success")
 	response.Success(c, http.StatusOK, "Invoice marked as paid", updated)
 }
 
-// UpdateInvoiceRequest holds updatable fields (notes, terms, due_date only).
-type UpdateInvoiceRequest struct {
-	Notes   *string `json:"notes"`
-	Terms   *string `json:"terms"`
-	DueDate string  `json:"due_date"`
+func (h *Handler) invoiceLabel(ctx context.Context, id uuid.UUID) string {
+	var number string
+	if err := h.db.QueryRow(ctx, `SELECT invoice_number FROM invoices WHERE id = $1`, id).Scan(&number); err != nil || number == "" {
+		return "An invoice"
+	}
+	return number
 }
 
 // UpdateInvoice PUT /api/v1/invoices/:id
+// Replaces dates, notes, and line items. A cancelled invoice cannot be edited.
+// The new total cannot drop below payments already received.
 func (h *Handler) UpdateInvoice(c *gin.Context) {
 	orgID, err := getOrgID(c)
 	if err != nil {
@@ -549,27 +558,172 @@ func (h *Handler) UpdateInvoice(c *gin.Context) {
 		return
 	}
 
-	var req UpdateInvoiceRequest
+	var req CreateInvoiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if req.CustomerID == uuid.Nil {
+		response.Error(c, http.StatusBadRequest, "customer_id is required")
+		return
+	}
+	if len(req.Items) == 0 {
+		response.Error(c, http.StatusBadRequest, "at least one item is required")
+		return
+	}
+	for _, item := range req.Items {
+		if strings.TrimSpace(item.Description) == "" {
+			response.Error(c, http.StatusBadRequest, "item description is required")
+			return
+		}
+		if item.Quantity <= 0 {
+			response.Error(c, http.StatusBadRequest, "item quantity must be > 0")
+			return
+		}
+		if item.UnitPrice < 0 {
+			response.Error(c, http.StatusBadRequest, "item unit_price must be >= 0")
+			return
+		}
+	}
 
-	dueDate, _ := parseOptionalDate(req.DueDate)
-
-	updated, err := h.q.UpdateInvoiceFields(context.Background(), invoicesdb.UpdateInvoiceFieldsParams{
-		ID:             id,
-		OrganisationID: orgID,
-		Notes:          req.Notes,
-		Terms:          req.Terms,
-		DueDate:        dueDate,
-	})
+	issuedDate, err := time.Parse("2006-01-02", req.IssuedDate)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to update invoice")
+		response.Error(c, http.StatusBadRequest, "Invalid issued_date format (YYYY-MM-DD)")
+		return
+	}
+	dueDate := issuedDate.AddDate(0, 0, 30)
+	if req.DueDate != "" {
+		dueDate, err = time.Parse("2006-01-02", req.DueDate)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, "Invalid due_date format (YYYY-MM-DD)")
+			return
+		}
+	}
+
+	isSameState := true
+	if req.IsSameState != nil {
+		isSameState = *req.IsSameState
+	}
+	discountAmount := 0.0
+	if req.DiscountAmount != nil {
+		discountAmount = *req.DiscountAmount
+	}
+
+	var subtotal, totalTax float64
+	for _, item := range req.Items {
+		lineTotal := item.Quantity * item.UnitPrice
+		subtotal += lineTotal
+		totalTax += lineTotal * (item.TaxRate / 100)
+	}
+	var cgst, sgst, igst float64
+	if isSameState {
+		cgst = totalTax / 2
+		sgst = totalTax / 2
+	} else {
+		igst = totalTax
+	}
+	grandTotal := subtotal + totalTax - discountAmount
+	if grandTotal < 0 {
+		response.Error(c, http.StatusBadRequest, "Invoice total cannot be negative")
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Invoice updated successfully", updated)
+	ctx := c.Request.Context()
+	var status string
+	err = h.db.QueryRow(ctx, `SELECT status FROM invoices WHERE id = $1 AND organisation_id = $2`, id, orgID).Scan(&status)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "Invoice not found")
+		return
+	}
+	if status == "cancelled" {
+		response.Error(c, http.StatusBadRequest, "A cancelled invoice cannot be edited")
+		return
+	}
+	var customerOK bool
+	_ = h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1 AND organisation_id = $2)`, req.CustomerID, orgID).Scan(&customerOK)
+	if !customerOK {
+		response.Error(c, http.StatusBadRequest, "Customer not found")
+		return
+	}
+	var paid float64
+	_ = h.db.QueryRow(ctx, `SELECT COALESCE(SUM(amount), 0)::float8 FROM payments WHERE invoice_id = $1 AND organisation_id = $2`, id, orgID).Scan(&paid)
+	if grandTotal+0.009 < paid {
+		response.Error(c, http.StatusBadRequest, "Invoice total cannot be less than payments already received")
+		return
+	}
+
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to begin transaction")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	issued := pgtype.Date{Time: issuedDate, Valid: true}
+	due := pgtype.Date{Time: dueDate, Valid: true}
+	tag, err := tx.Exec(ctx, `
+		UPDATE invoices SET
+			customer_id = $3,
+			issued_date = $4,
+			due_date = $5,
+			subtotal = $6,
+			tax_amount = $7,
+			cgst_amount = $8,
+			sgst_amount = $9,
+			igst_amount = $10,
+			discount_amount = $11,
+			total = $12,
+			grand_total = $12,
+			is_same_state = $13,
+			notes = $14,
+			terms = $15,
+			status = CASE
+				WHEN $16::numeric > 0 AND $16::numeric + 0.009 >= $12::numeric THEN 'paid'
+				WHEN status = 'paid' THEN 'sent'
+				ELSE status
+			END,
+			paid_at = CASE
+				WHEN $16::numeric > 0 AND $16::numeric + 0.009 >= $12::numeric THEN COALESCE(paid_at, NOW())
+				WHEN status = 'paid' THEN NULL
+				ELSE paid_at
+			END,
+			updated_at = NOW()
+		WHERE id = $1 AND organisation_id = $2 AND status <> 'cancelled'
+	`, id, orgID, req.CustomerID, issued, due, subtotal, totalTax, cgst, sgst, igst, discountAmount, grandTotal, isSameState, req.Notes, req.Terms, paid)
+	if err != nil || tag.RowsAffected() == 0 {
+		response.Error(c, http.StatusInternalServerError, "Failed to update invoice")
+		return
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM invoice_items WHERE invoice_id = $1`, id); err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to replace invoice items")
+		return
+	}
+	for idx, item := range req.Items {
+		lineTotal := item.Quantity * item.UnitPrice
+		taxAmt := lineTotal * (item.TaxRate / 100)
+		var serviceID any
+		if item.ServiceID != nil {
+			serviceID = *item.ServiceID
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO invoice_items (
+				invoice_id, service_id, description, hsn_sac_code, quantity, unit_price,
+				tax_rate, tax_amount, line_total, sort_order
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, id, serviceID, strings.TrimSpace(item.Description), item.HsnSacCode, item.Quantity, item.UnitPrice, item.TaxRate, taxAmt, lineTotal+taxAmt, idx); err != nil {
+			response.Error(c, http.StatusInternalServerError, "Failed to save invoice items")
+			return
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to save invoice")
+		return
+	}
+
+	inv, _ := h.q.GetInvoiceByID(ctx, invoicesdb.GetInvoiceByIDParams{ID: id, OrganisationID: orgID})
+	items, _ := h.q.GetInvoiceItems(ctx, id)
+	notify.Publish(orgID, "Invoice updated", h.invoiceLabel(ctx, id)+" was updated.", "info")
+	response.Success(c, http.StatusOK, "Invoice updated successfully", gin.H{"invoice": inv, "items": items})
 }
 
 // DeleteInvoice DELETE /api/v1/invoices/:id
@@ -682,9 +836,6 @@ func (h *Handler) SendInvoiceEmail(c *gin.Context) {
 		dueDate = inv.DueDate.Time.Format("02 Jan 2006")
 	}
 
-	// Build items HTML for email
-	itemsHTML := buildEmailItemsHTML(items, inv.Currency)
-
 	bizName := ""
 	if settings.BusinessName != nil {
 		bizName = *settings.BusinessName
@@ -711,7 +862,7 @@ func (h *Handler) SendInvoiceEmail(c *gin.Context) {
 		TaxAmount:     fmt.Sprintf("%.2f", inv.TaxAmount),
 		GrandTotal:    fmt.Sprintf("%.2f", inv.GrandTotal),
 		Notes:         notes,
-		ItemsHTML:     itemsHTML,
+		Lines:         emailLines(items, inv.Currency),
 	}
 
 	if h.emailClient == nil {
@@ -727,18 +878,15 @@ func (h *Handler) SendInvoiceEmail(c *gin.Context) {
 	response.Success(c, http.StatusOK, "Invoice email sent successfully", gin.H{"sent_to": toEmail})
 }
 
-func buildEmailItemsHTML(items []invoicesdb.InvoiceItem, currency string) string {
-	var sb strings.Builder
+func emailLines(items []invoicesdb.InvoiceItem, currency string) []email.InvoiceLine {
+	lines := make([]email.InvoiceLine, 0, len(items))
 	for _, item := range items {
-		sb.WriteString(fmt.Sprintf(
-			`<tr style="border-bottom:1px solid #e5e7eb">
-<td style="padding:10px 12px;font-size:13px;color:#1f2937">%s</td>
-<td style="padding:10px 12px;font-size:13px;color:#1f2937;text-align:right">%.2f</td>
-<td style="padding:10px 12px;font-size:13px;color:#1f2937;text-align:right">%s %.2f</td>
-<td style="padding:10px 12px;font-size:13px;color:#1f2937;text-align:right">%s %.2f</td>
-</tr>`,
-			item.Description, item.Quantity, currency, item.UnitPrice, currency, item.LineTotal,
-		))
+		lines = append(lines, email.InvoiceLine{
+			Description: item.Description,
+			Quantity:    fmt.Sprintf("%.2f", item.Quantity),
+			UnitPrice:   fmt.Sprintf("%s %.2f", currency, item.UnitPrice),
+			Amount:      fmt.Sprintf("%s %.2f", currency, item.LineTotal),
+		})
 	}
-	return sb.String()
+	return lines
 }

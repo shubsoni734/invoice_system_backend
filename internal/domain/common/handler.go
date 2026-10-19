@@ -1,7 +1,9 @@
 package common
 
 import (
+	"crypto/subtle"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/your-org/invoice-backend/internal/pkg/email"
@@ -10,6 +12,7 @@ import (
 
 type Handler struct {
 	emailClient *email.Client
+	testToken   string
 }
 
 func NewHandler(emailClient *email.Client) *Handler {
@@ -28,12 +31,41 @@ func (h *Handler) TestEmail(c *gin.Context) {
 		return
 	}
 
-	// For test email, we can send a simple welcome-like message
-	err := h.emailClient.SendWelcomeEmail(req.Email, "Test User", "TEST_PASSWORD_123")
+	err := h.emailClient.SendTestEmail(req.Email)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to send test email: "+err.Error())
 		return
 	}
 
 	response.Success(c, http.StatusOK, "Test email sent successfully to "+req.Email, nil)
+}
+
+// SendSample POST /api/v1/email-check/:token
+func (h *Handler) SendSample(c *gin.Context) {
+	if !tokenMatches(h.testToken, c.Param("token")) {
+		response.Error(c, http.StatusNotFound, "Not found")
+		return
+	}
+
+	var req TestEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Enter a valid email address")
+		return
+	}
+
+	if err := h.emailClient.SendTestEmail(req.Email); err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to send test email: "+err.Error())
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Sample email sent to "+req.Email, nil)
+}
+
+func tokenMatches(secret, provided string) bool {
+	secret = strings.TrimSpace(secret)
+	provided = strings.TrimSpace(provided)
+	if secret == "" || provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(secret), []byte(provided)) == 1
 }

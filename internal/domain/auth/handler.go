@@ -2,13 +2,18 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/invoice-backend/internal/domain/access"
 	adminauthdb "github.com/your-org/invoice-backend/internal/domain/auth/sqlc"
 	"github.com/your-org/invoice-backend/internal/pkg/email"
 	"github.com/your-org/invoice-backend/internal/pkg/response"
@@ -18,14 +23,16 @@ import (
 
 type Handler struct {
 	q           *adminauthdb.Queries
+	db          *pgxpool.Pool
 	jwtManager  *utils.JWTManager
 	emailClient *email.Client
 	frontendURL string
 }
 
-func NewHandler(q *adminauthdb.Queries, jwtManager *utils.JWTManager, emailClient *email.Client, frontendURL string) *Handler {
+func NewHandler(q *adminauthdb.Queries, db *pgxpool.Pool, jwtManager *utils.JWTManager, emailClient *email.Client, frontendURL string) *Handler {
 	return &Handler{
 		q:           q,
+		db:          db,
 		jwtManager:  jwtManager,
 		emailClient: emailClient,
 		frontendURL: frontendURL,
@@ -111,11 +118,11 @@ func (h *Handler) Login(c *gin.Context) {
 	expiresAt := pgtype.Timestamptz{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true}
 
 	_, err = h.q.CreateRefreshToken(ctx, adminauthdb.CreateRefreshTokenParams{
-		UserID:       user.ID,
-		TokenHash:    utils.HashToken(refreshToken),
-		ExpiresAt:    expiresAt,
-		IpAddress:    ipType,
-		UserAgent:    ua,
+		UserID:    user.ID,
+		TokenHash: utils.HashToken(refreshToken),
+		ExpiresAt: expiresAt,
+		IpAddress: ipType,
+		UserAgent: ua,
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to store refresh token")
@@ -125,13 +132,7 @@ func (h *Handler) Login(c *gin.Context) {
 	response.Success(c, http.StatusOK, "Login successful", gin.H{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
-		"user": gin.H{
-			"id":              user.ID,
-			"organisation_id": user.OrganisationID,
-			"email":           user.Email,
-			"name":            user.Name,
-			"role":            user.Role,
-		},
+		"user":          h.userPayload(ctx, user.ID, user.OrganisationID, user.Email, user.Name, user.Role, user.IsActive, user.CreatedAt.Time),
 	})
 }
 
@@ -155,15 +156,68 @@ func (h *Handler) GetMe(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, "User retrieved", gin.H{
-		"id":              user.ID,
-		"organisation_id": user.OrganisationID,
-		"email":           user.Email,
-		"name":            user.Name,
-		"role":            user.Role,
-		"is_active":       user.IsActive,
-		"created_at":      user.CreatedAt.Time,
-	})
+	response.Success(c, http.StatusOK, "User retrieved", h.userPayload(c.Request.Context(), user.ID, user.OrganisationID, user.Email, user.Name, user.Role, user.IsActive, user.CreatedAt.Time))
+}
+
+func (h *Handler) userPayload(ctx context.Context, id, orgID uuid.UUID, email, name, role string, active bool, createdAt time.Time) gin.H {
+	record, err := access.ListForUser(ctx, h.db, id)
+	fullAccess := err == nil && record.IsSystem
+	grants := []access.Grant{}
+	if err == nil {
+		grants = record.Access
+	}
+	var phone string
+	if h.db != nil {
+		_ = h.db.QueryRow(ctx, `SELECT COALESCE(phone, '') FROM users WHERE id = $1`, id).Scan(&phone)
+	}
+	return gin.H{
+		"id":              id,
+		"organisation_id": orgID,
+		"email":           email,
+		"name":            name,
+		"phone":           phone,
+		"role":            role,
+		"is_active":       active,
+		"created_at":      createdAt,
+		"full_access":     fullAccess,
+		"access":          grants,
+	}
+}
+
+type profileRequest struct {
+	Name  string `json:"name" binding:"required"`
+	Phone string `json:"phone"`
+}
+
+// UpdateProfile PUT /api/v1/auth/profile
+func (h *Handler) UpdateProfile(c *gin.Context) {
+	rawID := c.GetString(constants.CtxUserID)
+	id, err := uuid.Parse(rawID)
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "Invalid user ID")
+		return
+	}
+	var req profileRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		response.Error(c, http.StatusBadRequest, "Name is required")
+		return
+	}
+	ctx := c.Request.Context()
+	phone := strings.TrimSpace(req.Phone)
+	name := strings.TrimSpace(req.Name)
+	tag, err := h.db.Exec(ctx, `
+		UPDATE users SET name = $2, phone = NULLIF($3, ''), updated_at = NOW() WHERE id = $1
+	`, id, name, phone)
+	if err != nil || tag.RowsAffected() == 0 {
+		response.Error(c, http.StatusInternalServerError, "Failed to update profile")
+		return
+	}
+	user, err := h.q.GetUserByID(ctx, id)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "User not found")
+		return
+	}
+	response.Success(c, http.StatusOK, "Profile updated", h.userPayload(ctx, user.ID, user.OrganisationID, user.Email, user.Name, user.Role, user.IsActive, user.CreatedAt.Time))
 }
 
 type LogoutRequest struct{}
@@ -208,7 +262,11 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	// 1. Verify user exists
 	user, err := h.q.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		response.Error(c, http.StatusNotFound, "User not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			response.Success(c, http.StatusOK, "If an account exists for that email, a reset link has been sent", nil)
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "Failed to process password reset")
 		return
 	}
 
@@ -218,7 +276,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 
 	// 3. Store token with 10 min expiry
 	expiresAt := pgtype.Timestamptz{Time: time.Now().Add(10 * time.Minute), Valid: true}
-	
+
 	// Delete any existing tokens for this user first
 	_ = h.q.DeleteUserPasswordResets(ctx, user.ID)
 
@@ -242,7 +300,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Password reset email sent successfully", nil)
+	response.Success(c, http.StatusOK, "If an account exists for that email, a reset link has been sent", nil)
 }
 
 type RefreshTokenRequest struct {
