@@ -2,11 +2,17 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 )
+
+// Used only when production (or Render) still has a localhost DATABASE_URL.
+// Local development keeps the URL from .env.
+const productionDatabaseURL = "postgresql://neondb_owner:npg_GRkOWz9Hf6rI@ep-mute-mud-adi7b3r8-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 type Config struct {
 	Server     ServerConfig
@@ -103,7 +109,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Port:            getEnv("SERVER_PORT", "8080"),
+			Port:            serverPort(),
 			Environment:     getEnv("ENVIRONMENT", "development"),
 			AllowedOrigins:  splitList(getEnv("ALLOWED_ORIGINS", "http://localhost:5173")),
 			FrontendURL:     getEnv("FRONTEND_URL", "http://localhost:5173"),
@@ -111,7 +117,7 @@ func Load() (*Config, error) {
 			EmailTestToken:  getEnv("EMAIL_TEST_TOKEN", ""),
 		},
 		Database: DatabaseConfig{
-			URL:             getEnv("DATABASE_URL", ""),
+			URL:             resolveDatabaseURL(getEnv("ENVIRONMENT", "development"), getEnv("DATABASE_URL", "")),
 			MinConns:        getInt("DB_MIN_CONNS", 5),
 			MaxConns:        getInt("DB_MAX_CONNS", 25),
 			MaxConnLifetime: parseDuration(getEnv("DB_MAX_CONN_LIFETIME", "1h")),
@@ -169,6 +175,42 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func serverPort() string {
+	if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+		return port
+	}
+	return getEnv("SERVER_PORT", "8080")
+}
+
+func resolveDatabaseURL(environment, configured string) string {
+	configured = strings.TrimSpace(configured)
+	if useProductionDatabase(environment) && (configured == "" || isLoopbackDatabase(configured)) {
+		return productionDatabaseURL
+	}
+	return configured
+}
+
+func useProductionDatabase(environment string) bool {
+	if strings.EqualFold(strings.TrimSpace(environment), "production") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("RENDER")), "true")
+}
+
+func isLoopbackDatabase(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		lower := strings.ToLower(raw)
+		return strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1")
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func getEnv(key, defaultValue string) string {
